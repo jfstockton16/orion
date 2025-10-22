@@ -1,0 +1,78 @@
+# Cross-Exchange Arbitrage Engine Configuration
+
+# Trading Parameters
+trading:
+  threshold_spread: 0.01          # Minimum 1% edge required
+  max_trade_size_pct: 0.05        # Max 5% of bankroll per trade
+  min_trade_size_usd: 100         # Minimum trade size
+  target_liquidity_depth: 5000    # Minimum $ liquidity per side
+  slippage_tolerance: 0.002       # 0.2% max slippage
+  auto_execute: false             # Set to true for live trading
+
+# Capital Management
+capital:
+  initial_bankroll: 100000        # Starting capital in USD
+  kalshi_allocation_pct: 0.50     # 50% allocated to Kalshi
+  polymarket_allocation_pct: 0.50 # 50% allocated to Polymarket
+  reserve_pct: 0.10               # Keep 10% in reserve
+  rebalance_interval_hr: 4        # Rebalance every 4 hours
+  rebalance_threshold: 0.15       # Rebalance if drift > 15%
+
+# Risk Management
+risk:
+  max_open_positions: 20          # Maximum concurrent positions
+  max_exposure_per_event: 0.10    # Max 10% exposure to single event
+  max_daily_loss_pct: 0.05        # Stop trading if down 5% in a day
+  position_correlation_limit: 0.70 # Avoid highly correlated positions
+
+# Market Polling
+polling:
+  interval_sec: 30                # Check markets every 30 seconds
+  batch_size: 100                 # Events to fetch per request
+  timeout_sec: 10                 # API request timeout
+
+# Fees & Costs
+fees:
+  kalshi_fee_pct: 0.007           # 0.7% fee on Kalshi
+  polymarket_fee_pct: 0.02        # 2% fee on Polymarket
+  gas_estimate_gwei: 30           # Estimated gas price
+  blockchain_cost_usd: 5          # Avg cost per on-chain tx
+
+# Yield Optimization
+yield:
+  enabled: false                  # Park idle funds for yield
+  min_idle_balance: 10000         # Minimum to deploy for yield
+  target_apy: 0.045               # Target 4.5% APY
+
+# Monitoring & Alerts
+monitoring:
+  alert_channels:
+    - telegram
+  alert_threshold_spread: 0.015   # Alert if spread > 1.5%
+  alert_min_opportunity_usd: 500  # Alert if profit > $500
+  dashboard_enabled: true
+  dashboard_port: 8501
+
+# Logging
+logging:
+  level: INFO                     # DEBUG, INFO, WARNING, ERROR
+  log_file: logs/arbitrage.log
+  max_bytes: 10485760             # 10MB
+  backup_count: 5
+
+# Database
+database:
+  backup_interval_hr: 24
+  retention_days: 365
+
+# Exchanges
+exchanges:
+  kalshi:
+    enabled: true
+    rate_limit_per_minute: 100
+  polymarket:
+    enabled: true
+    rate_limit_per_minute: 60
+  getarbitragebets:
+    enabled: true
+    scrape_url: https://getarbitragebets.com/data/feed.json

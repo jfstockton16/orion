@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  orion-bot:
+    build: .
+    container_name: orion-arbitrage-bot
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+    restart: unless-stopped
+    command: python main.py --auto-execute false
+    networks:
+      - orion-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  orion-dashboard:
+    build: .
+    container_name: orion-dashboard
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    command: streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0
+    networks:
+      - orion-network
+    depends_on:
+      - orion-bot
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  orion-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:
