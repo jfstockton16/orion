@@ -183,13 +183,15 @@ python main.py
 # You'll get a 5-second warning before trading starts
 ```
 
-### 8. Launch Dashboard (Optional)
+### 8. Launch Dashboard (Recommended)
 
 ```bash
 streamlit run dashboard.py
 ```
 
 Access at: http://localhost:8501
+
+**NEW**: The dashboard now includes a full **Control Interface** for managing the engine! See [DASHBOARD_USAGE.md](DASHBOARD_USAGE.md) for details.
 
 ## ⚙️ Configuration
 
@@ -250,12 +252,26 @@ python main.py --dry-run
 
 The Streamlit dashboard provides:
 
+### Monitoring (Original)
 - **Real-time Balance**: View Kalshi, Polymarket, and total balances
 - **Open Positions**: Monitor active arbitrage positions
 - **Opportunity Feed**: Recent detected opportunities
 - **Performance Metrics**: P&L, win rate, volume
 - **Performance Charts**: Balance over time
 - **Auto-refresh**: Updates every 30 seconds
+
+### 🎮 Control Interface (NEW)
+- **Engine Status Indicator**: See if the engine is running (visual indicator)
+- **Paper Trading Toggle**: Switch between simulation and live trading modes
+- **Auto-Execute Toggle**: Enable/disable automatic trade execution
+- **Parameter Editor**: Adjust trading parameters in real-time
+  - Trading thresholds (min edge, trade sizes, liquidity)
+  - Risk management (max positions, daily loss limits, polling interval)
+- **Save Configuration**: Update config.yaml directly from the dashboard
+- **Current Configuration Display**: Quick view of active settings
+- **Control Instructions**: Built-in guide for starting/stopping the engine
+
+> **📖 For complete dashboard usage guide, see [DASHBOARD_USAGE.md](DASHBOARD_USAGE.md)**
 
 ## 🔔 Alerts
 
@@ -309,7 +325,8 @@ orion/
 ├── logs/                          # Log files
 ├── tests/                         # Unit tests
 ├── main.py                        # CLI entry point
-├── dashboard.py                   # Streamlit dashboard
+├── dashboard.py                   # Streamlit dashboard with controls
+├── DASHBOARD_USAGE.md             # 🆕 Dashboard control guide
 ├── requirements.txt               # Dependencies
 ├── pyproject.toml                 # 🆕 Modern Python packaging
 ├── Dockerfile                     # Docker image
@@ -493,13 +510,14 @@ For issues and questions:
 
 ## 🗺️ Roadmap
 
+- [x] Web-based configuration UI (Dashboard control interface)
 - [ ] Add more exchanges (Insight, Manifold)
 - [ ] Machine learning for spread prediction
 - [ ] Advanced position hedging strategies
-- [ ] Web-based configuration UI
 - [ ] Portfolio optimization (maximize Sharpe)
 - [ ] Market-making mode
 - [ ] Historical backtesting engine
+- [ ] Real-time engine start/stop from dashboard
 
 ## 📊 Example Output
 

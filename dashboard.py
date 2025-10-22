@@ -1,4 +1,4 @@
-"""Streamlit dashboard for live monitoring"""
+"""Streamlit dashboard for live monitoring and control"""
 
 import streamlit as st
 import pandas as pd
@@ -6,6 +6,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+import json
+import os
+import yaml
 from src.database.models import init_database
 from src.database.repository import ArbitrageRepository
 from src.utils.config import get_config
@@ -35,6 +38,55 @@ def get_db_session():
     config = get_config()
     engine, Session = init_database(config.database_url)
     return Session()
+
+
+def load_runtime_config():
+    """Load runtime configuration"""
+    runtime_config_path = 'config/runtime_config.json'
+
+    if os.path.exists(runtime_config_path):
+        with open(runtime_config_path, 'r') as f:
+            return json.load(f)
+
+    # Default runtime config
+    return {
+        'paper_trading': True,
+        'auto_execute': False,
+        'engine_running': False,
+        'last_updated': None
+    }
+
+
+def save_runtime_config(config_data):
+    """Save runtime configuration"""
+    runtime_config_path = 'config/runtime_config.json'
+
+    # Ensure config directory exists
+    os.makedirs('config', exist_ok=True)
+
+    config_data['last_updated'] = datetime.now().isoformat()
+
+    with open(runtime_config_path, 'w') as f:
+        json.dump(config_data, f, indent=2)
+
+
+def load_trading_config():
+    """Load trading parameters from config.yaml"""
+    config_path = 'config/config.yaml'
+
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+
+    return {}
+
+
+def save_trading_config(config_data):
+    """Save trading parameters to config.yaml"""
+    config_path = 'config/config.yaml'
+
+    with open(config_path, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
 
 def load_data(session: Session, days: int = 7):
@@ -67,6 +119,10 @@ def main():
     st.title("💰 Orion Cross-Exchange Arbitrage Dashboard")
     st.markdown("---")
 
+    # Load configurations
+    runtime_config = load_runtime_config()
+    trading_config = load_trading_config()
+
     # Sidebar
     with st.sidebar:
         st.header("Settings")
@@ -84,6 +140,182 @@ def main():
 
         Real-time opportunity detection and automated execution.
         """)
+
+    # ========== ENGINE CONTROL PANEL ==========
+    st.header("🎮 Engine Control Panel")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        # Engine status indicator
+        engine_running = runtime_config.get('engine_running', False)
+        status_color = "🟢" if engine_running else "🔴"
+        st.markdown(f"### {status_color} Engine Status")
+        st.markdown(f"**{'Running' if engine_running else 'Stopped'}**")
+
+        if runtime_config.get('last_updated'):
+            last_update = datetime.fromisoformat(runtime_config['last_updated'])
+            st.caption(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    with col2:
+        # Paper trading toggle
+        paper_trading = st.toggle(
+            "Paper Trading Mode",
+            value=runtime_config.get('paper_trading', True),
+            help="Enable to simulate trades without real execution"
+        )
+
+        if paper_trading != runtime_config.get('paper_trading'):
+            runtime_config['paper_trading'] = paper_trading
+            save_runtime_config(runtime_config)
+            st.success("✅ Paper trading mode updated!")
+            st.rerun()
+
+    with col3:
+        # Auto-execute toggle
+        auto_execute = st.toggle(
+            "Auto-Execute Trades",
+            value=runtime_config.get('auto_execute', False),
+            help="Automatically execute detected opportunities"
+        )
+
+        if auto_execute != runtime_config.get('auto_execute'):
+            runtime_config['auto_execute'] = auto_execute
+
+            # Also update the config.yaml
+            if 'trading' in trading_config:
+                trading_config['trading']['auto_execute'] = auto_execute
+                save_trading_config(trading_config)
+
+            save_runtime_config(runtime_config)
+            st.success("✅ Auto-execute setting updated!")
+            st.rerun()
+
+    # Engine control instructions
+    st.info("""
+    **💡 How to Control the Engine:**
+
+    1. **Start Engine**: Run `python main.py` (paper trading) or `python main.py --auto-execute` (live trading)
+    2. **Stop Engine**: Press `Ctrl+C` in the terminal running the engine
+    3. **Paper Trading**: Enabled by default - simulates trades without real execution
+    4. **Auto-Execute**: When enabled, trades are executed automatically
+
+    Note: Restart the engine after changing parameters below for changes to take effect.
+    """)
+
+    st.markdown("---")
+
+    # ========== TRADING PARAMETERS ==========
+    st.header("⚙️ Trading Parameters")
+
+    with st.expander("📊 Adjust Trading Parameters", expanded=False):
+        st.markdown("**Modify parameters below and click 'Save Parameters' to update config.yaml**")
+
+        param_col1, param_col2 = st.columns(2)
+
+        with param_col1:
+            st.subheader("Trading Thresholds")
+
+            threshold_spread = st.number_input(
+                "Minimum Edge Required (%)",
+                min_value=0.1,
+                max_value=10.0,
+                value=trading_config.get('trading', {}).get('threshold_spread', 0.01) * 100,
+                step=0.1,
+                help="Minimum profit margin required to consider a trade"
+            ) / 100
+
+            max_trade_size_pct = st.number_input(
+                "Max Trade Size (% of bankroll)",
+                min_value=1.0,
+                max_value=20.0,
+                value=trading_config.get('trading', {}).get('max_trade_size_pct', 0.05) * 100,
+                step=0.5,
+                help="Maximum percentage of bankroll to risk per trade"
+            ) / 100
+
+            min_trade_size_usd = st.number_input(
+                "Min Trade Size (USD)",
+                min_value=10,
+                max_value=1000,
+                value=int(trading_config.get('trading', {}).get('min_trade_size_usd', 100)),
+                step=10,
+                help="Minimum trade size in USD"
+            )
+
+            target_liquidity_depth = st.number_input(
+                "Target Liquidity Depth (USD)",
+                min_value=1000,
+                max_value=50000,
+                value=int(trading_config.get('trading', {}).get('target_liquidity_depth', 5000)),
+                step=500,
+                help="Minimum liquidity required per side"
+            )
+
+        with param_col2:
+            st.subheader("Risk Management")
+
+            max_open_positions = st.number_input(
+                "Max Open Positions",
+                min_value=1,
+                max_value=50,
+                value=int(trading_config.get('risk', {}).get('max_open_positions', 20)),
+                step=1,
+                help="Maximum number of concurrent positions"
+            )
+
+            max_daily_loss_pct = st.number_input(
+                "Max Daily Loss (%)",
+                min_value=1.0,
+                max_value=20.0,
+                value=trading_config.get('risk', {}).get('max_daily_loss_pct', 0.05) * 100,
+                step=0.5,
+                help="Stop trading if daily loss exceeds this percentage"
+            ) / 100
+
+            polling_interval = st.number_input(
+                "Market Polling Interval (seconds)",
+                min_value=10,
+                max_value=300,
+                value=int(trading_config.get('polling', {}).get('interval_sec', 30)),
+                step=5,
+                help="How often to check markets for opportunities"
+            )
+
+            slippage_tolerance = st.number_input(
+                "Slippage Tolerance (%)",
+                min_value=0.05,
+                max_value=2.0,
+                value=trading_config.get('trading', {}).get('slippage_tolerance', 0.002) * 100,
+                step=0.05,
+                help="Maximum acceptable slippage"
+            ) / 100
+
+        # Save button
+        if st.button("💾 Save Parameters to config.yaml", type="primary"):
+            # Update trading config
+            if 'trading' not in trading_config:
+                trading_config['trading'] = {}
+            if 'risk' not in trading_config:
+                trading_config['risk'] = {}
+            if 'polling' not in trading_config:
+                trading_config['polling'] = {}
+
+            trading_config['trading']['threshold_spread'] = threshold_spread
+            trading_config['trading']['max_trade_size_pct'] = max_trade_size_pct
+            trading_config['trading']['min_trade_size_usd'] = min_trade_size_usd
+            trading_config['trading']['target_liquidity_depth'] = target_liquidity_depth
+            trading_config['trading']['slippage_tolerance'] = slippage_tolerance
+            trading_config['risk']['max_open_positions'] = max_open_positions
+            trading_config['risk']['max_daily_loss_pct'] = max_daily_loss_pct
+            trading_config['polling']['interval_sec'] = polling_interval
+
+            # Save to file
+            save_trading_config(trading_config)
+
+            st.success("✅ Parameters saved to config.yaml! Restart the engine for changes to take effect.")
+
+    st.markdown("---")
 
     # Load data
     session = get_db_session()
@@ -129,6 +361,34 @@ def main():
             f"{win_rate:.1f}%",
             delta=None
         )
+
+    st.markdown("---")
+
+    # Current Parameters Summary
+    st.subheader("📋 Current Configuration")
+    config_col1, config_col2, config_col3 = st.columns(3)
+
+    with config_col1:
+        st.markdown("**Trading Settings**")
+        st.markdown(f"• Min Edge: {trading_config.get('trading', {}).get('threshold_spread', 0.01)*100:.1f}%")
+        st.markdown(f"• Max Trade Size: {trading_config.get('trading', {}).get('max_trade_size_pct', 0.05)*100:.1f}%")
+        st.markdown(f"• Min Trade: ${trading_config.get('trading', {}).get('min_trade_size_usd', 100):,.0f}")
+
+    with config_col2:
+        st.markdown("**Risk Management**")
+        st.markdown(f"• Max Positions: {trading_config.get('risk', {}).get('max_open_positions', 20)}")
+        st.markdown(f"• Max Daily Loss: {trading_config.get('risk', {}).get('max_daily_loss_pct', 0.05)*100:.1f}%")
+        st.markdown(f"• Poll Interval: {trading_config.get('polling', {}).get('interval_sec', 30)}s")
+
+    with config_col3:
+        st.markdown("**Execution Mode**")
+        mode_icon = "📝" if runtime_config.get('paper_trading', True) else "💵"
+        mode_text = "Paper Trading" if runtime_config.get('paper_trading', True) else "Live Trading"
+        st.markdown(f"• Mode: {mode_icon} {mode_text}")
+
+        auto_icon = "✅" if runtime_config.get('auto_execute', False) else "⏸️"
+        auto_text = "Enabled" if runtime_config.get('auto_execute', False) else "Disabled"
+        st.markdown(f"• Auto-Execute: {auto_icon} {auto_text}")
 
     st.markdown("---")
 
