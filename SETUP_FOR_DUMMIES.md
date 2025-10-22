@@ -325,7 +325,73 @@ If something doesn't work:
 
 ---
 
-## Summary of Commands
+## Step 12: Set Up Easy Launch (One-Time Setup)
+
+**THIS IS THE BEST PART!** After this step, you'll never need to use Terminal again.
+
+In Terminal, copy and paste these commands ONE LAST TIME:
+
+```bash
+cd ~/Desktop/orion
+chmod +x "Start Orion.command"
+chmod +x "Stop Orion.command"
+chmod +x scripts/start_orion.sh
+chmod +x scripts/stop_orion.sh
+```
+
+Now you have two special files in your `orion` folder:
+- **Start Orion.command** - Starts everything
+- **Stop Orion.command** - Stops everything
+
+**First time only:** When you double-click these files, macOS will say "cannot be opened because it is from an unidentified developer."
+
+Here's how to fix that:
+1. Right-click (or Control+click) on **Start Orion.command**
+2. Select "Open"
+3. Click "Open" in the popup
+4. Do the same for **Stop Orion.command**
+
+After doing this once, double-clicking will work forever.
+
+**Optional but recommended:** Create desktop shortcuts:
+
+Right-click and drag these files to your Desktop while holding the Option+Command keys. This creates aliases (shortcuts) on your Desktop.
+
+Or simply copy them:
+```bash
+cp "Start Orion.command" ~/Desktop/
+cp "Stop Orion.command" ~/Desktop/
+cp "Orion Dashboard.html" ~/Desktop/
+```
+
+---
+
+## Summary of Daily Usage (No Terminal Required!)
+
+**To start Orion and the dashboard:**
+1. Double-click **Start Orion.command** (on Desktop or in the orion folder)
+2. Wait about 10 seconds
+3. Your browser will automatically open to the dashboard
+
+**To view the dashboard (if Orion is already running):**
+- Double-click **Orion Dashboard.html**
+- Or go to: http://localhost:8501 in Safari
+
+**To stop Orion:**
+- Double-click **Stop Orion.command**
+
+**To check logs (Terminal required, optional):**
+```bash
+tail -f ~/Desktop/orion/logs/arbitrage.log
+```
+
+That's it! No more Terminal commands needed for daily use.
+
+---
+
+## OLD METHOD: Summary of Commands (For Reference)
+
+You don't need these anymore, but they still work if you prefer Terminal:
 
 **To start the bot:**
 ```bash
