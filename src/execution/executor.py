@@ -220,16 +220,19 @@ class TradeExecutor:
                 f"{limit_price:.4f}"
             )
 
-            # Note: Polymarket uses token IDs, not market IDs directly
-            # In practice, you'd need to resolve the NO token ID for the market
-            token_id = self._get_no_token_id(opportunity.polymarket_market_id)
+            # Resolve NO token ID for the market
+            token_id = await self._get_no_token_id(opportunity.polymarket_market_id)
+
+            if not token_id:
+                logger.error(f"Failed to resolve token ID for market {opportunity.polymarket_market_id}")
+                return None
 
             result = await self.polymarket.place_order(
                 token_id=token_id,
                 side='BUY',
                 size=opportunity.polymarket_size,
                 price=limit_price,
-                order_type='LIMIT'
+                order_type='GTC'  # Good til cancelled
             )
 
             if result:
@@ -243,7 +246,7 @@ class TradeExecutor:
             logger.error(f"Error placing Polymarket order: {e}")
             raise
 
-    def _get_no_token_id(self, market_id: str) -> str:
+    async def _get_no_token_id(self, market_id: str) -> Optional[str]:
         """
         Get NO token ID for a Polymarket market
 
@@ -251,12 +254,15 @@ class TradeExecutor:
             market_id: Polymarket market ID
 
         Returns:
-            NO token ID
+            NO token ID or None if not found
         """
-        # In production, this would query the market data
-        # For now, return market_id as placeholder
-        # Polymarket markets have separate token IDs for YES and NO
-        return f"{market_id}_NO"
+        # Get token IDs from market data using the Polymarket client
+        token_ids = await self.polymarket.get_token_ids_for_market(market_id)
+        if token_ids:
+            return token_ids.get('no')
+
+        logger.error(f"Could not resolve NO token ID for market {market_id}")
+        return None
 
     async def _handle_partial_fill(
         self,

@@ -39,14 +39,18 @@ class ArbitrageEngine:
         # Initialize components
         self.kalshi = KalshiClient(
             api_key=config.kalshi_api_key,
-            api_secret=config.kalshi_api_secret,
+            private_key_path=config.kalshi_private_key_path,
+            private_key_pem=config.kalshi_private_key_pem,
             base_url=config.kalshi_base_url
         )
 
         self.polymarket = PolymarketClient(
             api_key=config.polymarket_api_key,
+            api_secret=config.polymarket_api_secret,
+            api_passphrase=config.polymarket_api_passphrase,
             private_key=config.polymarket_private_key,
-            proxy_url=config.polymarket_proxy_url
+            chain_id=config.polymarket_chain_id,
+            host=config.polymarket_proxy_url
         )
 
         self.matcher = EventMatcher(
@@ -137,16 +141,19 @@ class ArbitrageEngine:
 
     async def _authenticate(self):
         """Authenticate with exchanges"""
-        logger.info("Authenticating with exchanges...")
+        logger.info("Verifying exchange credentials...")
 
-        # Kalshi login
-        if await self.kalshi.login():
-            logger.info("Kalshi authentication successful")
+        # Kalshi uses RSA-PSS signing on each request (no separate login)
+        if self.kalshi.private_key and self.kalshi.api_key:
+            logger.info("Kalshi credentials configured (RSA-PSS signing)")
         else:
-            logger.error("Kalshi authentication failed")
+            logger.warning("Kalshi credentials not fully configured")
 
-        # Polymarket doesn't require separate login (uses wallet)
-        logger.info("Polymarket ready (wallet-based)")
+        # Polymarket uses EIP-712 signing + CLOB API (no separate login)
+        if self.polymarket.client:
+            logger.info("Polymarket client initialized (EIP-712 + CLOB API)")
+        else:
+            logger.warning("Polymarket client not initialized")
 
     def _schedule_tasks(self):
         """Schedule periodic background tasks"""
