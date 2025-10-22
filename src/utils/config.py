@@ -128,15 +128,29 @@ class Config:
     # API Credentials
     @property
     def kalshi_api_key(self) -> Optional[str]:
-        """Get Kalshi API key from environment or encrypted storage"""
+        """Get Kalshi API key ID from environment or encrypted storage"""
         if self.secrets_manager:
             api_key, _ = self.secrets_manager.get_kalshi_credentials()
             return api_key
         return self.get_env('KALSHI_API_KEY')
 
     @property
+    def kalshi_private_key_path(self) -> Optional[str]:
+        """Get Kalshi RSA private key file path"""
+        return self.get_env('KALSHI_PRIVATE_KEY_PATH')
+
+    @property
+    def kalshi_private_key_pem(self) -> Optional[str]:
+        """Get Kalshi RSA private key as PEM string"""
+        if self.secrets_manager:
+            _, private_key = self.secrets_manager.get_kalshi_credentials()
+            return private_key
+        return self.get_env('KALSHI_PRIVATE_KEY_PEM')
+
+    @property
     def kalshi_api_secret(self) -> Optional[str]:
-        """Get Kalshi API secret from environment or encrypted storage"""
+        """DEPRECATED: Kalshi now uses RSA-PSS signing, not API secret"""
+        # Keeping for backward compatibility with secrets_manager
         if self.secrets_manager:
             _, api_secret = self.secrets_manager.get_kalshi_credentials()
             return api_secret
@@ -149,7 +163,7 @@ class Config:
 
     @property
     def polymarket_private_key(self) -> Optional[str]:
-        """Get Polymarket private key from environment or encrypted storage"""
+        """Get Polymarket Ethereum wallet private key from environment or encrypted storage"""
         if self.secrets_manager:
             private_key, _ = self.secrets_manager.get_polymarket_credentials()
             return private_key
@@ -157,15 +171,30 @@ class Config:
 
     @property
     def polymarket_api_key(self) -> Optional[str]:
-        """Get Polymarket API key from environment or encrypted storage"""
+        """Get Polymarket CLOB API key from environment or encrypted storage"""
         if self.secrets_manager:
             _, api_key = self.secrets_manager.get_polymarket_credentials()
             return api_key
         return self.get_env('POLYMARKET_API_KEY')
 
     @property
+    def polymarket_api_secret(self) -> Optional[str]:
+        """Get Polymarket CLOB API secret"""
+        return self.get_env('POLYMARKET_API_SECRET')
+
+    @property
+    def polymarket_api_passphrase(self) -> Optional[str]:
+        """Get Polymarket CLOB API passphrase"""
+        return self.get_env('POLYMARKET_API_PASSPHRASE')
+
+    @property
+    def polymarket_chain_id(self) -> int:
+        """Get Polymarket chain ID (137 for Polygon mainnet, 80001 for Mumbai testnet)"""
+        return int(self.get_env('POLYMARKET_CHAIN_ID', '137'))
+
+    @property
     def polymarket_proxy_url(self) -> str:
-        """Get Polymarket proxy URL"""
+        """Get Polymarket CLOB proxy URL"""
         return self.get_env('POLYMARKET_PROXY_URL', 'https://clob.polymarket.com')
 
     @property

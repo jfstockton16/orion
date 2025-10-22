@@ -238,8 +238,7 @@ class AlertManager:
         try:
             await self.telegram_bot.send_message(
                 chat_id=self.telegram_chat_id,
-                text=message,
-                parse_mode='HTML'
+                text=message
             )
             logger.debug("Telegram alert sent successfully")
 

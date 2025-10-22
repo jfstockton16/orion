@@ -1,7 +1,6 @@
 # Core Dependencies
 python-dotenv==1.0.1
 pyyaml==6.0.1
-asyncio==3.4.3
 aiohttp==3.9.5  # Updated from 3.9.1 - fixes SSRF and header injection CVEs
 httpx==0.27.0  # Updated from 0.25.2
 
@@ -13,6 +12,7 @@ websockets==12.0
 # Blockchain / Web3
 web3==6.15.1  # Updated from 6.11.3
 eth-account==0.11.0  # Updated from 0.10.0
+py-clob-client==0.25.0  # Official Polymarket CLOB client
 
 # Database
 sqlalchemy==2.0.30  # Updated from 2.0.23 - bug fixes

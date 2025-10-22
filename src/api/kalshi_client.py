@@ -3,10 +3,12 @@
 import asyncio
 import aiohttp
 import base64
-import hmac
-import hashlib
+import time
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
 from src.utils.logger import setup_logger
 from src.utils.validation import (
     validate_ticker,
@@ -21,22 +23,46 @@ logger = setup_logger("kalshi")
 
 
 class KalshiClient:
-    """Client for interacting with Kalshi API"""
+    """Client for interacting with Kalshi API using RSA-PSS signing"""
 
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, base_url: str = "https://api.elections.kalshi.com/trade-api/v2"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        private_key_path: Optional[str] = None,
+        private_key_pem: Optional[str] = None,
+        base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
+    ):
         """
-        Initialize Kalshi client
+        Initialize Kalshi client with API key and private key for RSA-PSS signing
 
         Args:
-            api_key: Kalshi API key
-            api_secret: Kalshi API secret
+            api_key: Kalshi API key ID
+            private_key_path: Path to RSA private key file (PEM format)
+            private_key_pem: RSA private key as PEM string (alternative to path)
             base_url: Kalshi API base URL
         """
         self.api_key = api_key
-        self.api_secret = api_secret
         self.base_url = base_url
         self.session: Optional[aiohttp.ClientSession] = None
-        self.access_token: Optional[str] = None
+        self.private_key = None
+
+        # Load private key
+        if private_key_pem:
+            self.private_key = serialization.load_pem_private_key(
+                private_key_pem.encode() if isinstance(private_key_pem, str) else private_key_pem,
+                password=None,
+                backend=default_backend()
+            )
+        elif private_key_path:
+            try:
+                with open(private_key_path, 'rb') as f:
+                    self.private_key = serialization.load_pem_private_key(
+                        f.read(),
+                        password=None,
+                        backend=default_backend()
+                    )
+            except Exception as e:
+                logger.error(f"Failed to load private key from {private_key_path}: {e}")
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Ensure aiohttp session exists"""
@@ -49,72 +75,107 @@ class KalshiClient:
         if self.session and not self.session.closed:
             await self.session.close()
 
-    def _sign_request(self, method: str, path: str, body: str = "") -> str:
+    def _sign_request(self, method: str, path: str) -> Dict[str, str]:
         """
-        Sign API request using HMAC
+        Sign API request using RSA-PSS (Kalshi API v2 standard)
 
         Args:
-            method: HTTP method (GET, POST, etc.)
-            path: API path
-            body: Request body
+            method: HTTP method (GET, POST, DELETE, etc.)
+            path: API path WITHOUT query string (e.g., /markets, /portfolio/orders)
 
         Returns:
-            Signature string
+            Dictionary with authentication headers
         """
-        if not self.api_secret:
-            return ""
+        if not self.api_key or not self.private_key:
+            logger.warning("Missing API key or private key for signing")
+            return {}
 
-        timestamp = str(int(datetime.now().timestamp() * 1000))
-        message = f"{timestamp}{method.upper()}{path}{body}"
-        signature = hmac.new(
-            self.api_secret.encode(),
-            message.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        # Create timestamp in milliseconds
+        timestamp_ms = str(int(time.time() * 1000))
 
-        return signature
+        # Create message to sign: timestamp + METHOD + path (no query params)
+        # Per Kalshi docs: signature over "timestamp + METHOD + PATH"
+        message = f"{timestamp_ms}{method.upper()}{path}"
 
-    async def login(self) -> bool:
+        try:
+            # Sign using RSA-PSS with SHA-256
+            signature = self.private_key.sign(
+                message.encode('utf-8'),
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+
+            # Base64 encode the signature
+            signature_b64 = base64.b64encode(signature).decode('utf-8')
+
+            # Return required headers
+            return {
+                'KALSHI-ACCESS-KEY': self.api_key,
+                'KALSHI-ACCESS-TIMESTAMP': timestamp_ms,
+                'KALSHI-ACCESS-SIGNATURE': signature_b64,
+                'Content-Type': 'application/json'
+            }
+
+        except Exception as e:
+            logger.error(f"Error signing request: {e}")
+            return {}
+
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict] = None,
+        json_data: Optional[Dict] = None
+    ) -> Optional[Dict[str, Any]]:
         """
-        Authenticate with Kalshi API
+        Make authenticated API request
+
+        Args:
+            method: HTTP method
+            endpoint: API endpoint path (without base URL)
+            params: Query parameters
+            json_data: JSON body for POST/PUT requests
 
         Returns:
-            True if successful, False otherwise
+            Response JSON or None
         """
-        if not self.api_key or not self.api_secret:
-            logger.warning("No API credentials provided for Kalshi")
-            return False
+        # Get path without query params for signing
+        path = endpoint if endpoint.startswith('/') else f'/{endpoint}'
+
+        # Sign the request
+        headers = self._sign_request(method, path)
+        if not headers:
+            logger.error("Failed to sign request - missing credentials")
+            return None
 
         try:
             session = await self._ensure_session()
-            url = f"{self.base_url}/login"
-            payload = {
-                'email': self.api_key,
-                'password': self.api_secret
-            }
+            url = f"{self.base_url}{path}"
 
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self.access_token = data.get('token')
-                    logger.info("Successfully authenticated with Kalshi")
-                    return True
+            async with session.request(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json=json_data,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status in [200, 201]:
+                    return await response.json()
                 else:
-                    logger.error(f"Failed to authenticate with Kalshi: {response.status}")
-                    return False
+                    error_text = await response.text()
+                    logger.error(f"API request failed: {response.status} - {error_text}")
+                    return None
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout on {method} {endpoint}")
+            return None
         except Exception as e:
-            logger.error(f"Error authenticating with Kalshi: {e}")
-            return False
-
-    async def _get_headers(self) -> Dict[str, str]:
-        """Get request headers with authentication"""
-        headers = {'Content-Type': 'application/json'}
-
-        if self.access_token:
-            headers['Authorization'] = f'Bearer {self.access_token}'
-
-        return headers
+            logger.error(f"Error making request to {endpoint}: {e}")
+            return None
 
     async def get_markets(self, limit: int = 100, status: str = "open") -> List[Dict[str, Any]]:
         """
@@ -127,37 +188,17 @@ class KalshiClient:
         Returns:
             List of market dictionaries
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/markets"
-            params = {
-                'limit': limit,
-                'status': status
-            }
+        params = {
+            'limit': limit,
+            'status': status
+        }
 
-            headers = await self._get_headers()
-
-            async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    markets = data.get('markets', [])
-                    logger.debug(f"Fetched {len(markets)} markets from Kalshi")
-                    return markets
-                elif response.status == 401:
-                    logger.warning("Unauthorized - attempting to re-login")
-                    if await self.login():
-                        return await self.get_markets(limit, status)
-                    return []
-                else:
-                    logger.error(f"Failed to fetch markets: {response.status}")
-                    return []
-
-        except asyncio.TimeoutError:
-            logger.error("Timeout fetching Kalshi markets")
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching Kalshi markets: {e}")
-            return []
+        data = await self._request('GET', '/markets', params=params)
+        if data:
+            markets = data.get('markets', [])
+            logger.debug(f"Fetched {len(markets)} markets from Kalshi")
+            return markets
+        return []
 
     async def get_market(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
@@ -169,22 +210,8 @@ class KalshiClient:
         Returns:
             Market dictionary or None
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/markets/{ticker}"
-            headers = await self._get_headers()
-
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('market')
-                else:
-                    logger.error(f"Failed to fetch market {ticker}: {response.status}")
-                    return None
-
-        except Exception as e:
-            logger.error(f"Error fetching market {ticker}: {e}")
-            return None
+        data = await self._request('GET', f'/markets/{ticker}')
+        return data.get('market') if data else None
 
     async def get_orderbook(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
@@ -196,21 +223,7 @@ class KalshiClient:
         Returns:
             Orderbook dictionary with yes/no prices
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/markets/{ticker}/orderbook"
-            headers = await self._get_headers()
-
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    logger.error(f"Failed to fetch orderbook for {ticker}: {response.status}")
-                    return None
-
-        except Exception as e:
-            logger.error(f"Error fetching orderbook for {ticker}: {e}")
-            return None
+        return await self._request('GET', f'/markets/{ticker}/orderbook')
 
     async def get_best_price(self, ticker: str, side: str) -> Optional[float]:
         """
@@ -277,10 +290,6 @@ class KalshiClient:
             price = validate_kalshi_price_cents(price)
             order_type = validate_order_type(order_type)
 
-            session = await self._ensure_session()
-            url = f"{self.base_url}/portfolio/orders"
-            headers = await self._get_headers()
-
             payload = {
                 'ticker': ticker,
                 'client_order_id': f"{ticker}_{int(datetime.now().timestamp())}",
@@ -290,19 +299,19 @@ class KalshiClient:
                 'type': order_type,
             }
 
+            # Add price based on side (only include the relevant field)
             if order_type == 'limit':
-                payload['yes_price'] = price if side == 'yes' else None
-                payload['no_price'] = price if side == 'no' else None
-
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status in [200, 201]:
-                    result = await response.json()
-                    logger.info(f"Order placed: {result.get('order', {}).get('order_id')}")
-                    return result
+                if side == 'yes':
+                    payload['yes_price'] = price
                 else:
-                    error = await response.text()
-                    logger.error(f"Failed to place order: {response.status} - {error}")
-                    return None
+                    payload['no_price'] = price
+
+            result = await self._request('POST', '/portfolio/orders', json_data=payload)
+
+            if result:
+                logger.info(f"Order placed: {result.get('order', {}).get('order_id')}")
+                return result
+            return None
 
         except ValidationError as e:
             logger.error(f"Order validation failed: {e}")
@@ -318,25 +327,13 @@ class KalshiClient:
         Returns:
             Dictionary with balance information
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/portfolio/balance"
-            headers = await self._get_headers()
-
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {
-                        'balance': float(data.get('balance', 0)) / 100,  # Convert cents to dollars
-                        'payout': float(data.get('payout', 0)) / 100
-                    }
-                else:
-                    logger.error(f"Failed to fetch balance: {response.status}")
-                    return None
-
-        except Exception as e:
-            logger.error(f"Error fetching balance: {e}")
-            return None
+        data = await self._request('GET', '/portfolio/balance')
+        if data:
+            return {
+                'balance': float(data.get('balance', 0)) / 100,  # Convert cents to dollars
+                'payout': float(data.get('payout', 0)) / 100
+            }
+        return None
 
     async def get_positions(self) -> List[Dict[str, Any]]:
         """
@@ -345,22 +342,8 @@ class KalshiClient:
         Returns:
             List of position dictionaries
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/portfolio/positions"
-            headers = await self._get_headers()
-
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('positions', [])
-                else:
-                    logger.error(f"Failed to fetch positions: {response.status}")
-                    return []
-
-        except Exception as e:
-            logger.error(f"Error fetching positions: {e}")
-            return []
+        data = await self._request('GET', '/portfolio/positions')
+        return data.get('positions', []) if data else []
 
     async def get_order_status(self, order_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -372,21 +355,7 @@ class KalshiClient:
         Returns:
             Order status dictionary or None
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/portfolio/orders/{order_id}"
-            headers = await self._get_headers()
-
-            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    logger.error(f"Failed to get order status for {order_id}: {response.status}")
-                    return None
-
-        except Exception as e:
-            logger.error(f"Error getting order status: {e}")
-            return None
+        return await self._request('GET', f'/portfolio/orders/{order_id}')
 
     async def cancel_order(self, order_id: str) -> bool:
         """
@@ -398,23 +367,11 @@ class KalshiClient:
         Returns:
             True if successfully cancelled, False otherwise
         """
-        try:
-            session = await self._ensure_session()
-            url = f"{self.base_url}/portfolio/orders/{order_id}"
-            headers = await self._get_headers()
-
-            async with session.delete(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status in [200, 204]:
-                    logger.info(f"Order {order_id} cancelled successfully")
-                    return True
-                else:
-                    error = await response.text()
-                    logger.error(f"Failed to cancel order {order_id}: {response.status} - {error}")
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error cancelling order {order_id}: {e}")
-            return False
+        result = await self._request('DELETE', f'/portfolio/orders/{order_id}')
+        if result is not None:  # DELETE returns 204 with no content
+            logger.info(f"Order {order_id} cancelled successfully")
+            return True
+        return False
 
     def normalize_market(self, market: Dict[str, Any]) -> Dict[str, Any]:
         """
