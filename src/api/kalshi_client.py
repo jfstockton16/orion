@@ -8,6 +8,14 @@ import hashlib
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from src.utils.logger import setup_logger
+from src.utils.validation import (
+    validate_ticker,
+    validate_kalshi_price_cents,
+    validate_quantity,
+    validate_side,
+    validate_order_type,
+    ValidationError
+)
 
 logger = setup_logger("kalshi")
 
@@ -261,6 +269,14 @@ class KalshiClient:
             Order response or None
         """
         try:
+            # Validate inputs
+            ticker = validate_ticker(ticker)
+            side = validate_side(side, allowed_sides=['yes', 'no'])
+            action = validate_side(action, allowed_sides=['buy', 'sell'])
+            count = validate_quantity(count, min_qty=1, max_qty=10000)
+            price = validate_kalshi_price_cents(price)
+            order_type = validate_order_type(order_type)
+
             session = await self._ensure_session()
             url = f"{self.base_url}/portfolio/orders"
             headers = await self._get_headers()
@@ -268,15 +284,15 @@ class KalshiClient:
             payload = {
                 'ticker': ticker,
                 'client_order_id': f"{ticker}_{int(datetime.now().timestamp())}",
-                'side': side.lower(),
-                'action': action.lower(),
+                'side': side,
+                'action': action,
                 'count': count,
-                'type': order_type.lower(),
+                'type': order_type,
             }
 
-            if order_type.lower() == 'limit':
-                payload['yes_price'] = price if side.lower() == 'yes' else None
-                payload['no_price'] = price if side.lower() == 'no' else None
+            if order_type == 'limit':
+                payload['yes_price'] = price if side == 'yes' else None
+                payload['no_price'] = price if side == 'no' else None
 
             async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status in [200, 201]:
@@ -288,6 +304,9 @@ class KalshiClient:
                     logger.error(f"Failed to place order: {response.status} - {error}")
                     return None
 
+        except ValidationError as e:
+            logger.error(f"Order validation failed: {e}")
+            return None
         except Exception as e:
             logger.error(f"Error placing order: {e}")
             return None
@@ -342,6 +361,60 @@ class KalshiClient:
         except Exception as e:
             logger.error(f"Error fetching positions: {e}")
             return []
+
+    async def get_order_status(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get status of a specific order
+
+        Args:
+            order_id: Order ID to check
+
+        Returns:
+            Order status dictionary or None
+        """
+        try:
+            session = await self._ensure_session()
+            url = f"{self.base_url}/portfolio/orders/{order_id}"
+            headers = await self._get_headers()
+
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    logger.error(f"Failed to get order status for {order_id}: {response.status}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Error getting order status: {e}")
+            return None
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """
+        Cancel an open order
+
+        Args:
+            order_id: Order ID to cancel
+
+        Returns:
+            True if successfully cancelled, False otherwise
+        """
+        try:
+            session = await self._ensure_session()
+            url = f"{self.base_url}/portfolio/orders/{order_id}"
+            headers = await self._get_headers()
+
+            async with session.delete(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status in [200, 204]:
+                    logger.info(f"Order {order_id} cancelled successfully")
+                    return True
+                else:
+                    error = await response.text()
+                    logger.error(f"Failed to cancel order {order_id}: {response.status} - {error}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error cancelling order {order_id}: {e}")
+            return False
 
     def normalize_market(self, market: Dict[str, Any]) -> Dict[str, Any]:
         """

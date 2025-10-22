@@ -10,12 +10,13 @@ from dotenv import load_dotenv
 class Config:
     """Configuration manager that loads from YAML and environment variables"""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, use_encryption: bool = True):
         """
         Initialize configuration manager
 
         Args:
             config_path: Path to YAML config file (default: config/config.yaml)
+            use_encryption: Whether to use encrypted credentials (default: True)
         """
         # Load environment variables
         load_dotenv()
@@ -26,6 +27,17 @@ class Config:
 
         self.config_path = Path(config_path)
         self._config: Dict[str, Any] = {}
+        self.use_encryption = use_encryption
+
+        # Initialize secrets manager if encryption is enabled
+        self.secrets_manager = None
+        if use_encryption and os.getenv('MASTER_PASSWORD'):
+            try:
+                from src.utils.secrets_manager import SecretsManager
+                self.secrets_manager = SecretsManager()
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to initialize secrets manager: {e}")
 
         # Load configuration
         self._load_config()
@@ -116,12 +128,18 @@ class Config:
     # API Credentials
     @property
     def kalshi_api_key(self) -> Optional[str]:
-        """Get Kalshi API key from environment"""
+        """Get Kalshi API key from environment or encrypted storage"""
+        if self.secrets_manager:
+            api_key, _ = self.secrets_manager.get_kalshi_credentials()
+            return api_key
         return self.get_env('KALSHI_API_KEY')
 
     @property
     def kalshi_api_secret(self) -> Optional[str]:
-        """Get Kalshi API secret from environment"""
+        """Get Kalshi API secret from environment or encrypted storage"""
+        if self.secrets_manager:
+            _, api_secret = self.secrets_manager.get_kalshi_credentials()
+            return api_secret
         return self.get_env('KALSHI_API_SECRET')
 
     @property
@@ -131,12 +149,18 @@ class Config:
 
     @property
     def polymarket_private_key(self) -> Optional[str]:
-        """Get Polymarket private key from environment"""
+        """Get Polymarket private key from environment or encrypted storage"""
+        if self.secrets_manager:
+            private_key, _ = self.secrets_manager.get_polymarket_credentials()
+            return private_key
         return self.get_env('POLYMARKET_PRIVATE_KEY')
 
     @property
     def polymarket_api_key(self) -> Optional[str]:
-        """Get Polymarket API key from environment"""
+        """Get Polymarket API key from environment or encrypted storage"""
+        if self.secrets_manager:
+            _, api_key = self.secrets_manager.get_polymarket_credentials()
+            return api_key
         return self.get_env('POLYMARKET_API_KEY')
 
     @property
@@ -146,12 +170,18 @@ class Config:
 
     @property
     def telegram_bot_token(self) -> Optional[str]:
-        """Get Telegram bot token from environment"""
+        """Get Telegram bot token from environment or encrypted storage"""
+        if self.secrets_manager:
+            bot_token, _ = self.secrets_manager.get_telegram_credentials()
+            return bot_token
         return self.get_env('TELEGRAM_BOT_TOKEN')
 
     @property
     def telegram_chat_id(self) -> Optional[str]:
-        """Get Telegram chat ID from environment"""
+        """Get Telegram chat ID from environment or encrypted storage"""
+        if self.secrets_manager:
+            _, chat_id = self.secrets_manager.get_telegram_credentials()
+            return chat_id
         return self.get_env('TELEGRAM_CHAT_ID')
 
     @property

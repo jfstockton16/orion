@@ -10,6 +10,7 @@ from src.arbitrage.matcher import EventMatcher
 from src.arbitrage.detector import ArbitrageDetector
 from src.execution.executor import TradeExecutor
 from src.execution.capital_manager import CapitalManager
+from src.execution.circuit_breaker import CircuitBreaker, TradingHaltException
 from src.database.models import init_database
 from src.database.repository import ArbitrageRepository
 from src.monitoring.alerts import AlertManager
@@ -61,6 +62,13 @@ class ArbitrageEngine:
         )
 
         self.capital_manager = CapitalManager(config._config)
+
+        # Initialize circuit breaker for loss protection
+        self.circuit_breaker = CircuitBreaker(
+            max_daily_loss_pct=config.get('risk.max_daily_loss_pct', 0.05),
+            max_drawdown_pct=0.15,  # Additional 15% drawdown protection
+            reset_hour=0  # Reset at midnight
+        )
 
         self.alert_manager = AlertManager({
             **config._config,
@@ -205,6 +213,23 @@ class ArbitrageEngine:
 
     async def _scan_and_execute(self):
         """Scan for opportunities and execute trades"""
+
+        # Check circuit breaker before trading
+        try:
+            portfolio = self.capital_manager.get_portfolio_state()
+            self.circuit_breaker.check_breaker(
+                current_balance=portfolio.total_balance,
+                current_pnl=portfolio.total_pnl
+            )
+        except TradingHaltException as e:
+            logger.error(f"🛑 Trading halted by circuit breaker: {e}")
+            await self.alert_manager.send_error_alert(
+                "Circuit Breaker Triggered",
+                str(e)
+            )
+            # Stop the engine
+            self.running = False
+            return
 
         # 1. Fetch markets from both exchanges
         logger.info("Fetching markets...")

@@ -1,39 +1,42 @@
 # Core Dependencies
-python-dotenv==1.0.0
+python-dotenv==1.0.1
 pyyaml==6.0.1
 asyncio==3.4.3
-aiohttp==3.9.1
-httpx==0.25.2
+aiohttp==3.9.5  # Updated from 3.9.1 - fixes SSRF and header injection CVEs
+httpx==0.27.0  # Updated from 0.25.2
 
 # API Clients
-requests==2.31.0
+requests==2.32.3  # Updated from 2.31.0 - security fixes
 gql==3.5.0
 websockets==12.0
 
 # Blockchain / Web3
-web3==6.11.3
-eth-account==0.10.0
+web3==6.15.1  # Updated from 6.11.3
+eth-account==0.11.0  # Updated from 0.10.0
 
 # Database
-sqlalchemy==2.0.23
-alembic==1.13.0
+sqlalchemy==2.0.30  # Updated from 2.0.23 - bug fixes
+alembic==1.13.1  # Updated from 1.13.0
 
 # Scheduling
 apscheduler==3.10.4
 
 # Monitoring & Alerts
-python-telegram-bot==20.7
-streamlit==1.29.0
-plotly==5.18.0
-pandas==2.1.4
+python-telegram-bot==21.1.1  # Updated from 20.7
+streamlit==1.34.0  # Updated from 1.29.0 - XSS vulnerability fixes
+plotly==5.20.0  # Updated from 5.18.0
+pandas==2.2.2  # Updated from 2.1.4
 
 # API Framework
-fastapi==0.108.0
-uvicorn==0.25.0
+fastapi==0.111.0  # Updated from 0.108.0
+uvicorn==0.29.0  # Updated from 0.25.0
 
 # Security
-cryptography==41.0.7
+cryptography==42.0.7  # Updated from 41.0.7 - CRITICAL security fixes
 boto3==1.34.10
+
+# Retry logic
+tenacity==8.3.0
 
 # Utilities
 colorlog==6.8.0

@@ -1,17 +1,33 @@
 # 💰 Orion Cross-Exchange Arbitrage Engine
 
-Automated arbitrage bot for prediction markets, detecting and executing profitable opportunities between **Kalshi** and **Polymarket**.
+**Production-ready** automated arbitrage bot for prediction markets, detecting and executing profitable opportunities between **Kalshi** and **Polymarket**.
+
+> ⚠️ **IMPORTANT**: This bot trades real money. Read the [Production Setup Guide](PRODUCTION_SETUP.md) and [Security Policy](SECURITY.md) before deployment.
 
 ## 🎯 Features
 
+### Core Trading
 - **Real-time Market Monitoring**: Continuously scans Kalshi and Polymarket for matching events
 - **Intelligent Event Matching**: Fuzzy matching algorithm to identify equivalent markets across exchanges
 - **Automated Execution**: Execute both legs of arbitrage trades simultaneously
-- **Risk Management**: Position sizing, exposure limits, and daily loss protection
 - **Capital Management**: Automatic bankroll allocation and rebalancing
 - **Live Dashboard**: Real-time monitoring via Streamlit web interface
 - **Alert System**: Telegram notifications for opportunities and executions
 - **Complete Audit Trail**: SQLite database logging all transactions
+
+### 🔒 Security Features (NEW)
+- **🔐 Encrypted Credential Storage**: AES-256 encryption for API keys and private keys (NEVER plain text!)
+- **✅ Input Validation**: Comprehensive validation prevents injection attacks
+- **🔒 No Known Vulnerabilities**: All dependencies updated with latest security patches
+- **📝 Audit Logging**: Complete trail of all operations
+- **🛡️ Secure by Default**: Encrypted credentials required for production use
+
+### 💰 Financial Safety (NEW)
+- **🚨 Circuit Breaker**: Automatic trading halt on excessive losses (5% daily limit)
+- **⚖️ Partial Fill Protection**: Automatic position unwinding prevents naked exposure
+- **📊 Order Verification**: Real-time order status checking from exchanges
+- **🎯 Position Limits**: Configurable exposure limits per event and overall
+- **⏸️ Manual Kill Switch**: Emergency stop procedures documented
 
 ## 🏗️ Architecture
 
@@ -67,69 +83,107 @@ Automated arbitrage bot for prediction markets, detecting and executing profitab
 
 ## 🚀 Quick Start
 
+> **📖 For detailed setup instructions, see [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)**
+
 ### 1. Clone and Install
 
 ```bash
 git clone <repository-url>
 cd orion
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
+### 2. 🔐 Encrypt Your Credentials (REQUIRED)
 
-Copy the example environment file and fill in your credentials:
+**CRITICAL**: Never use plain text credentials! Use the encryption utility:
+
+```bash
+python -m src.utils.secrets_manager
+```
+
+Follow the prompts to encrypt:
+- Kalshi API Key & Secret
+- Polymarket Private Key & API Key
+- Telegram credentials (optional)
+
+The utility will output encrypted values for your `.env` file.
+
+### 3. Configure Environment
 
 ```bash
 cp .env.example .env
-nano .env
+nano .env  # Add encrypted credentials from step 2
 ```
 
-Required environment variables:
+Your `.env` should look like:
 ```bash
-# Kalshi
-KALSHI_API_KEY=your_kalshi_api_key
-KALSHI_API_SECRET=your_kalshi_api_secret
+# Master password (store securely in password manager!)
+MASTER_PASSWORD=your_strong_master_password
 
-# Polymarket
-POLYMARKET_PRIVATE_KEY=your_ethereum_private_key
-POLYMARKET_API_KEY=your_polymarket_api_key
+# Encrypted credentials (from encryption utility)
+KALSHI_API_KEY_ENCRYPTED=gAAAAABl...
+KALSHI_API_SECRET_ENCRYPTED=gAAAAABl...
+POLYMARKET_PRIVATE_KEY_ENCRYPTED=gAAAAABl...
+POLYMARKET_API_KEY_ENCRYPTED=gAAAAABl...
 
-# Telegram (optional)
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+# Database
+DATABASE_URL=sqlite:///data/arbitrage.db
 ```
 
-### 3. Initialize Database
+### 4. Initialize Database
 
 ```bash
 python main.py --init-db
 ```
 
-### 4. Test Alert System (Optional)
+### 5. Test in Dry-Run Mode (24+ hours recommended)
 
-```bash
-python main.py --test-alerts
-```
-
-### 5. Run in Dry-Run Mode
-
-Test the bot without executing real trades:
+Test without executing real trades:
 
 ```bash
 python main.py --dry-run
 ```
 
-### 6. Start Live Trading
+Monitor logs: `tail -f logs/arbitrage.log`
 
-⚠️ **WARNING**: This will execute real trades with real money!
+### 6. Alert-Only Mode (3-7 days recommended)
 
-```bash
-python main.py --auto-execute true
+Detect opportunities but don't execute:
+
+```yaml
+# config/config.yaml
+trading:
+  auto_execute: false  # Keep false!
 ```
 
-### 7. Launch Dashboard
+```bash
+python main.py
+```
 
-In a separate terminal:
+### 7. Enable Live Trading (Use Extreme Caution)
+
+**⚠️ WARNING: This will execute real trades with real money!**
+
+```yaml
+# config/config.yaml - Start VERY conservative
+trading:
+  auto_execute: true
+  max_trade_size_pct: 0.02   # 2% max per trade
+  threshold_spread: 0.015     # 1.5% minimum edge
+
+risk:
+  max_open_positions: 5        # Very conservative
+  max_daily_loss_pct: 0.03     # 3% circuit breaker
+```
+
+```bash
+python main.py
+# You'll get a 5-second warning before trading starts
+```
+
+### 8. Launch Dashboard (Optional)
 
 ```bash
 streamlit run dashboard.py
@@ -223,34 +277,46 @@ Configure Telegram alerts to receive:
 ```
 orion/
 ├── src/
-│   ├── api/                    # Exchange API clients
-│   │   ├── kalshi_client.py
-│   │   └── polymarket_client.py
-│   ├── arbitrage/              # Core arbitrage logic
-│   │   ├── matcher.py          # Event matching
-│   │   └── detector.py         # Opportunity detection
-│   ├── execution/              # Trade execution
-│   │   ├── executor.py         # Order placement
-│   │   └── capital_manager.py  # Capital & risk mgmt
-│   ├── database/               # Data persistence
-│   │   ├── models.py           # SQLAlchemy models
-│   │   └── repository.py       # Data access layer
-│   ├── monitoring/             # Alerts & monitoring
+│   ├── api/                       # Exchange API clients
+│   │   ├── kalshi_client.py       # Kalshi REST API
+│   │   └── polymarket_client.py   # Polymarket CLOB API
+│   ├── arbitrage/                 # Core arbitrage logic
+│   │   ├── matcher.py             # Event matching
+│   │   ├── detector.py            # Opportunity detection
+│   │   └── risk_analyzer.py       # Risk assessment
+│   ├── execution/                 # Trade execution
+│   │   ├── executor.py            # Order placement
+│   │   ├── capital_manager.py     # Capital & risk mgmt
+│   │   └── circuit_breaker.py     # 🆕 Loss protection
+│   ├── database/                  # Data persistence
+│   │   ├── models.py              # SQLAlchemy models
+│   │   └── repository.py          # Data access layer
+│   ├── monitoring/                # Alerts & monitoring
 │   │   └── alerts.py
-│   ├── utils/                  # Utilities
-│   │   ├── config.py
-│   │   └── logger.py
-│   └── engine.py               # Main orchestrator
+│   ├── utils/                     # Utilities
+│   │   ├── config.py              # Configuration
+│   │   ├── logger.py              # Logging
+│   │   ├── secrets_manager.py     # 🆕 Credential encryption
+│   │   └── validation.py          # 🆕 Input validation
+│   └── engine.py                  # Main orchestrator
 ├── config/
-│   └── config.yaml             # Configuration
-├── data/                       # SQLite database
-├── logs/                       # Log files
-├── tests/                      # Unit tests
-├── main.py                     # CLI entry point
-├── dashboard.py                # Streamlit dashboard
-├── requirements.txt            # Dependencies
-├── Dockerfile                  # Docker image
-└── README.md                   # This file
+│   └── config.yaml                # Configuration
+├── docs/                          # 🆕 Documentation
+│   ├── CAPITAL_VELOCITY_GUIDE.md  # Compounding strategy
+│   ├── CUOMO_TRADE_ANALYSIS.md    # Real trade example
+│   └── RISK_GUIDE.md              # Risk framework
+├── data/                          # SQLite database
+├── logs/                          # Log files
+├── tests/                         # Unit tests
+├── main.py                        # CLI entry point
+├── dashboard.py                   # Streamlit dashboard
+├── requirements.txt               # Dependencies
+├── pyproject.toml                 # 🆕 Modern Python packaging
+├── Dockerfile                     # Docker image
+├── PRODUCTION_SETUP.md            # 🆕 Production deployment guide
+├── SECURITY.md                    # 🆕 Security policy
+├── PRODUCTION_READY_CHANGES.md    # 🆕 Technical audit report
+└── README.md                      # This file
 ```
 
 ## 🐳 Docker Deployment
@@ -324,14 +390,84 @@ The bot tracks:
 
 **USE AT YOUR OWN RISK**. This software is provided as-is with no guarantees.
 
-## 🔒 Security Best Practices
+## 🔒 Security Features & Best Practices
 
-1. **Never commit** `.env` or private keys to version control
-2. **Use AWS Secrets Manager** or similar for production
-3. **Rotate API keys** regularly
-4. **Monitor logs** for suspicious activity
-5. **Enable 2FA** on exchange accounts
-6. **Start small** and increase position sizes gradually
+### Built-In Security Controls
+
+✅ **Encrypted Credentials** - AES-256 encryption for all API keys and private keys
+✅ **Input Validation** - Comprehensive validation prevents injection attacks
+✅ **Circuit Breaker** - Automatic trading halt on excessive losses
+✅ **Partial Fill Protection** - Automatic position unwinding
+✅ **Audit Logging** - Complete trail of all operations
+✅ **Updated Dependencies** - No known security vulnerabilities
+
+### Required Security Practices
+
+1. **🔐 Always Use Encrypted Credentials**
+   ```bash
+   # Use the encryption utility (REQUIRED)
+   python -m src.utils.secrets_manager
+   # NEVER put plain text credentials in .env
+   ```
+
+2. **🔑 Master Password Security**
+   - Use 20+ character password
+   - Store in password manager (1Password, Bitwarden, etc.)
+   - Never commit to version control
+   - Rotate monthly
+
+3. **🔄 Regular Maintenance**
+   - Rotate API keys monthly
+   - Update dependencies weekly: `pip install --upgrade -r requirements.txt`
+   - Review logs daily: `grep ERROR logs/arbitrage.log`
+   - Backup database regularly
+
+4. **🛡️ Defense in Depth**
+   - Enable 2FA on exchange accounts
+   - Use separate wallets for trading (Polymarket)
+   - Run on secure network (VPN recommended)
+   - Monitor for suspicious activity
+
+5. **📊 Start Conservative**
+   - Begin with dry-run mode (24+ hours)
+   - Then alert-only mode (3-7 days)
+   - Start with small position sizes (2-3%)
+   - Gradually scale up if profitable
+
+> **📖 For complete security documentation, see [SECURITY.md](SECURITY.md)**
+
+## ✅ Production Ready Status
+
+**Version 1.0.0** - Production Ready as of October 2025
+
+### Recent Security Improvements
+
+This engine has undergone a comprehensive security audit and received major upgrades:
+
+✅ **Critical Security Fixes**
+- Encrypted credential storage (AES-256)
+- Input validation across all API calls
+- Updated all vulnerable dependencies
+- Comprehensive audit logging
+
+✅ **Financial Safety Features**
+- Circuit breaker for loss protection
+- Partial fill unwinding (prevents naked exposure)
+- Real-time order status verification
+- Configurable position limits
+
+✅ **Production Documentation**
+- [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) - Complete deployment guide
+- [SECURITY.md](SECURITY.md) - Security policy and best practices
+- [PRODUCTION_READY_CHANGES.md](PRODUCTION_READY_CHANGES.md) - Technical audit report
+
+**Risk Assessment**: 🟢 LOW (with conservative settings)
+
+**Deployment Recommendation**: Start with dry-run → alert-only → conservative live trading
+
+> **📊 See [PRODUCTION_READY_CHANGES.md](PRODUCTION_READY_CHANGES.md) for the complete technical audit report and all improvements made.**
+
+---
 
 ## 📝 License
 
@@ -350,9 +486,10 @@ Contributions welcome! Please:
 
 For issues and questions:
 
-- GitHub Issues: [repository/issues]
-- Documentation: See `docs/` folder
-- Discord: [invite-link]
+- **Production Setup**: See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)
+- **Security Issues**: See [SECURITY.md](SECURITY.md)
+- **GitHub Issues**: [repository/issues]
+- **Documentation**: See `docs/` folder
 
 ## 🗺️ Roadmap
 

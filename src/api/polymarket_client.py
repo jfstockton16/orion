@@ -6,7 +6,14 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from web3 import Web3
 from eth_account import Account
+from eth_account.messages import encode_defunct
 from src.utils.logger import setup_logger
+from src.utils.validation import (
+    validate_price,
+    validate_size_usd,
+    validate_market_id,
+    ValidationError
+)
 
 logger = setup_logger("polymarket")
 
@@ -251,6 +258,68 @@ class PolymarketClient:
         except Exception as e:
             logger.error(f"Error fetching balance: {e}")
             return None
+
+    async def get_order_status(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get status of a specific order
+
+        Args:
+            order_id: Order ID to check
+
+        Returns:
+            Order status dictionary or None
+        """
+        try:
+            session = await self._ensure_session()
+            url = f"{self.proxy_url}/order/{order_id}"
+
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    logger.error(f"Failed to get order status for {order_id}: {response.status}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Error getting order status: {e}")
+            return None
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """
+        Cancel an open order
+
+        Args:
+            order_id: Order ID to cancel
+
+        Returns:
+            True if successfully cancelled, False otherwise
+        """
+        if not self.account:
+            logger.error("Cannot cancel order without private key")
+            return False
+
+        try:
+            session = await self._ensure_session()
+            url = f"{self.proxy_url}/order"
+
+            # Build cancellation payload
+            cancel_payload = {
+                'order_id': order_id,
+                'timestamp': int(datetime.now().timestamp())
+            }
+
+            async with session.delete(url, json=cancel_payload, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status in [200, 204]:
+                    logger.info(f"Order {order_id} cancelled successfully")
+                    return True
+                else:
+                    error = await response.text()
+                    logger.error(f"Failed to cancel order {order_id}: {response.status} - {error}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error cancelling order {order_id}: {e}")
+            return False
 
     def normalize_market(self, market: Dict[str, Any]) -> Dict[str, Any]:
         """

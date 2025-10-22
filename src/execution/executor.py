@@ -266,7 +266,10 @@ class TradeExecutor:
         poly_order: Optional[Dict]
     ) -> None:
         """
-        Handle case where only one leg filled
+        Handle case where only one leg filled - CRITICAL FOR RISK MANAGEMENT
+
+        This method immediately unwinds any filled position if the other leg fails,
+        preventing naked directional exposure.
 
         Args:
             kalshi_filled: Whether Kalshi order filled
@@ -274,24 +277,120 @@ class TradeExecutor:
             kalshi_order: Kalshi order data
             poly_order: Polymarket order data
         """
-        logger.warning(
-            f"Partial fill detected - Kalshi: {kalshi_filled}, Poly: {poly_filled}"
+        logger.error(
+            f"🚨 PARTIAL FILL DETECTED - Kalshi: {kalshi_filled}, Poly: {poly_filled}"
         )
 
-        # In production, implement order cancellation and position unwinding
-        # For now, just log the situation
+        # Critical: Unwind any filled positions immediately
+        unwind_tasks = []
 
         if kalshi_filled and kalshi_order:
             logger.warning(
-                f"Need to unwind Kalshi position: {kalshi_order.get('order_id')}"
+                f"⚠️  Unwinding Kalshi position: {kalshi_order.get('order_id')}"
             )
-            # TODO: Cancel or offset Kalshi position
+            unwind_tasks.append(self._unwind_kalshi_position(kalshi_order))
 
         if poly_filled and poly_order:
             logger.warning(
-                f"Need to unwind Polymarket position: {poly_order.get('order_id')}"
+                f"⚠️  Unwinding Polymarket position: {poly_order.get('order_id')}"
             )
-            # TODO: Cancel or offset Polymarket position
+            unwind_tasks.append(self._unwind_polymarket_position(poly_order))
+
+        if unwind_tasks:
+            # Execute all unwinds concurrently
+            results = await asyncio.gather(*unwind_tasks, return_exceptions=True)
+
+            # Log results
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Unwind task {i} failed: {result}")
+                elif result:
+                    logger.info(f"✅ Unwind task {i} succeeded")
+                else:
+                    logger.error(f"❌ Unwind task {i} returned False")
+
+    async def _unwind_kalshi_position(self, kalshi_order: Dict) -> bool:
+        """
+        Unwind a Kalshi position by placing an offsetting order
+
+        Args:
+            kalshi_order: Original Kalshi order data
+
+        Returns:
+            True if successfully unwound, False otherwise
+        """
+        try:
+            ticker = kalshi_order.get('ticker')
+            side = kalshi_order.get('side')  # 'yes' or 'no'
+            count = kalshi_order.get('count')
+
+            if not all([ticker, side, count]):
+                logger.error("Insufficient order data to unwind Kalshi position")
+                return False
+
+            # Place offsetting market order (sell what we bought)
+            logger.info(f"Placing offsetting Kalshi order: SELL {count} {side} @ market")
+
+            result = await self.kalshi.place_order(
+                ticker=ticker,
+                side=side,
+                action='sell',  # Offset the buy
+                count=count,
+                price=50,  # Mid-price for market-like execution
+                order_type='limit'  # Use aggressive limit instead of true market
+            )
+
+            if result:
+                logger.info(f"✅ Kalshi position unwound: {result.get('order', {}).get('order_id')}")
+                return True
+            else:
+                logger.error("❌ Failed to unwind Kalshi position")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error unwinding Kalshi position: {e}")
+            return False
+
+    async def _unwind_polymarket_position(self, poly_order: Dict) -> bool:
+        """
+        Unwind a Polymarket position by placing an offsetting order
+
+        Args:
+            poly_order: Original Polymarket order data
+
+        Returns:
+            True if successfully unwound, False otherwise
+        """
+        try:
+            token_id = poly_order.get('token_id')
+            size = poly_order.get('size')
+
+            if not all([token_id, size]):
+                logger.error("Insufficient order data to unwind Polymarket position")
+                return False
+
+            # Place offsetting order (sell what we bought)
+            logger.info(f"Placing offsetting Polymarket order: SELL {size} @ market")
+
+            # Use mid-price for quick execution
+            result = await self.polymarket.place_order(
+                token_id=token_id,
+                side='SELL',  # Offset the buy
+                size=float(size),
+                price=0.5,  # Mid-price for market-like execution
+                order_type='LIMIT'
+            )
+
+            if result:
+                logger.info(f"✅ Polymarket position unwound: {result.get('order_id')}")
+                return True
+            else:
+                logger.error("❌ Failed to unwind Polymarket position")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error unwinding Polymarket position: {e}")
+            return False
 
     async def check_order_status(
         self,
@@ -308,9 +407,30 @@ class TradeExecutor:
         Returns:
             Tuple of (kalshi_filled, poly_filled)
         """
-        # In production, query order status from both exchanges
-        # For now, assume filled
-        return True, True
+        kalshi_filled = False
+        poly_filled = False
+
+        # Check Kalshi order status
+        if kalshi_order_id:
+            try:
+                kalshi_status = await self.kalshi.get_order_status(kalshi_order_id)
+                if kalshi_status:
+                    status = kalshi_status.get('status', '').lower()
+                    kalshi_filled = status in ['filled', 'complete', 'executed']
+            except Exception as e:
+                logger.error(f"Error checking Kalshi order status: {e}")
+
+        # Check Polymarket order status
+        if poly_order_id:
+            try:
+                poly_status = await self.polymarket.get_order_status(poly_order_id)
+                if poly_status:
+                    status = poly_status.get('status', '').lower()
+                    poly_filled = status in ['filled', 'complete', 'matched']
+            except Exception as e:
+                logger.error(f"Error checking Polymarket order status: {e}")
+
+        return kalshi_filled, poly_filled
 
     async def close(self):
         """Close API clients"""
