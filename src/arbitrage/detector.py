@@ -25,6 +25,9 @@ class ArbitrageOpportunity:
     spread: float  # P_yes(Kalshi) + P_no(Poly) - should be < 1
     edge: float  # 1 - spread (profit margin)
 
+    # Trade direction
+    trade_direction: str  # "kalshi_yes_poly_no" or "poly_yes_kalshi_no"
+
     # Sizing
     position_size_usd: float
     kalshi_contracts: int
@@ -92,23 +95,22 @@ class ArbitrageDetector:
         # Initialize risk analyzer
         self.risk_analyzer = RiskAnalyzer(config)
 
-    def calculate_spread(self, kalshi_yes: float, poly_no: float) -> float:
+    def calculate_spread(self, price1: float, price2: float) -> float:
         """
         Calculate spread for arbitrage
 
-        For a true arbitrage:
-        - Buy YES on Kalshi at price P_yes
-        - Buy NO on Polymarket at price P_no
-        - If P_yes + P_no < 1.0, there's an arbitrage
+        For a true arbitrage, the sum of complementary positions should be < 1.0:
+        - Direction 1: Buy YES on Kalshi + Buy NO on Polymarket
+        - Direction 2: Buy YES on Polymarket + Buy NO on Kalshi
 
         Args:
-            kalshi_yes: YES price on Kalshi (0-1)
-            poly_no: NO price on Polymarket (0-1)
+            price1: First price (0-1)
+            price2: Second price (0-1)
 
         Returns:
             Spread value (lower is better)
         """
-        return kalshi_yes + poly_no
+        return price1 + price2
 
     def calculate_edge(self, spread: float, fees: float = 0) -> float:
         """
@@ -173,6 +175,74 @@ class ArbitrageDetector:
 
         return kalshi_fee, polymarket_fee, total_fee
 
+    def detect_best_direction(
+        self,
+        kalshi_market: Dict,
+        polymarket_market: Dict,
+        kalshi_yes_price: float,
+        kalshi_no_price: float,
+        polymarket_yes_price: float,
+        polymarket_no_price: float,
+        similarity_score: float,
+        bankroll: float
+    ) -> Optional[ArbitrageOpportunity]:
+        """
+        Check BOTH arbitrage directions and return the best one
+
+        Direction 1: Kalshi YES + Polymarket NO
+        Direction 2: Polymarket YES + Kalshi NO
+
+        Args:
+            kalshi_market: Kalshi market data
+            polymarket_market: Polymarket market data
+            kalshi_yes_price: YES price on Kalshi (0-1)
+            kalshi_no_price: NO price on Kalshi (0-1)
+            polymarket_yes_price: YES price on Polymarket (0-1)
+            polymarket_no_price: NO price on Polymarket (0-1)
+            similarity_score: Market matching similarity
+            bankroll: Available bankroll
+
+        Returns:
+            Best ArbitrageOpportunity object or None
+        """
+        opportunities = []
+
+        # Try Direction 1: Kalshi YES + Polymarket NO
+        if kalshi_yes_price and polymarket_no_price:
+            opp1 = self._detect_opportunity_directional(
+                kalshi_market,
+                polymarket_market,
+                kalshi_yes_price,
+                polymarket_no_price,
+                similarity_score,
+                bankroll,
+                direction="kalshi_yes_poly_no"
+            )
+            if opp1:
+                opportunities.append(opp1)
+
+        # Try Direction 2: Polymarket YES + Kalshi NO
+        if polymarket_yes_price and kalshi_no_price:
+            opp2 = self._detect_opportunity_directional(
+                kalshi_market,
+                polymarket_market,
+                polymarket_yes_price,
+                kalshi_no_price,
+                similarity_score,
+                bankroll,
+                direction="poly_yes_kalshi_no"
+            )
+            if opp2:
+                opportunities.append(opp2)
+
+        # Return the best opportunity (highest expected profit)
+        if opportunities:
+            best = max(opportunities, key=lambda x: x.expected_profit)
+            logger.info(f"Found {len(opportunities)} direction(s), selected best: {best.trade_direction}")
+            return best
+
+        return None
+
     def detect_opportunity(
         self,
         kalshi_market: Dict,
@@ -183,7 +253,9 @@ class ArbitrageDetector:
         bankroll: float
     ) -> Optional[ArbitrageOpportunity]:
         """
-        Detect and calculate arbitrage opportunity
+        Detect arbitrage opportunity (LEGACY - single direction only)
+
+        For bidirectional detection, use detect_best_direction() instead.
 
         Args:
             kalshi_market: Kalshi market data
@@ -196,8 +268,43 @@ class ArbitrageDetector:
         Returns:
             ArbitrageOpportunity object or None
         """
+        return self._detect_opportunity_directional(
+            kalshi_market,
+            polymarket_market,
+            kalshi_yes_price,
+            polymarket_no_price,
+            similarity_score,
+            bankroll,
+            direction="kalshi_yes_poly_no"
+        )
+
+    def _detect_opportunity_directional(
+        self,
+        kalshi_market: Dict,
+        polymarket_market: Dict,
+        price1: float,  # Buy this first
+        price2: float,  # Buy this second
+        similarity_score: float,
+        bankroll: float,
+        direction: str
+    ) -> Optional[ArbitrageOpportunity]:
+        """
+        Detect and calculate arbitrage opportunity in a specific direction
+
+        Args:
+            kalshi_market: Kalshi market data
+            polymarket_market: Polymarket market data
+            price1: First price to buy (0-1)
+            price2: Second price to buy (0-1)
+            similarity_score: Market matching similarity
+            bankroll: Available bankroll
+            direction: Trade direction ("kalshi_yes_poly_no" or "poly_yes_kalshi_no")
+
+        Returns:
+            ArbitrageOpportunity object or None
+        """
         # Calculate spread
-        spread = self.calculate_spread(kalshi_yes_price, polymarket_no_price)
+        spread = self.calculate_spread(price1, price2)
 
         # Calculate raw edge (before fees)
         raw_edge = 1.0 - spread
@@ -257,12 +364,19 @@ class ArbitrageDetector:
         expected_profit = position_size * net_edge
         expected_roi = net_edge  # As a percentage
 
-        # Calculate contract sizes
-        # Kalshi: contracts are binary (0 or 100 cents payout)
-        kalshi_contracts = int(position_size / kalshi_yes_price)
-
-        # Polymarket: size in USDC
-        polymarket_size = position_size / polymarket_no_price
+        # Calculate contract sizes based on direction
+        if direction == "kalshi_yes_poly_no":
+            # Buy YES on Kalshi, NO on Polymarket
+            kalshi_contracts = int(position_size / price1)
+            polymarket_size = position_size / price2
+            kalshi_side = "YES"
+            poly_side = "NO"
+        else:  # poly_yes_kalshi_no
+            # Buy YES on Polymarket, NO on Kalshi
+            polymarket_size = position_size / price1
+            kalshi_contracts = int(position_size / price2)
+            kalshi_side = "NO"
+            poly_side = "YES"
 
         # Check liquidity
         kalshi_liquidity = kalshi_market.get('liquidity', 0)
@@ -306,10 +420,11 @@ class ArbitrageDetector:
             polymarket_market_id=polymarket_market.get('market_id'),
             question=kalshi_market.get('question', ''),
             end_date=kalshi_market.get('end_date'),
-            kalshi_yes_price=kalshi_yes_price,
-            polymarket_no_price=polymarket_no_price,
+            kalshi_yes_price=price1 if direction == "kalshi_yes_poly_no" else price2,
+            polymarket_no_price=price2 if direction == "kalshi_yes_poly_no" else price1,
             spread=spread,
             edge=net_edge,
+            trade_direction=direction,
             position_size_usd=position_size,
             kalshi_contracts=kalshi_contracts,
             polymarket_size=polymarket_size,
@@ -332,11 +447,13 @@ class ArbitrageDetector:
         # Build log message
         log_msg = (
             f"ARBITRAGE OPPORTUNITY DETECTED!\n"
+            f"  Direction: {direction}\n"
             f"  Question: {opportunity.question[:60]}...\n"
             f"  Spread: {spread:.4f} | Edge: {net_edge:.4f} ({net_edge*100:.2f}%)\n"
             f"  Position Size: ${position_size:.2f}\n"
             f"  Expected Profit: ${expected_profit:.2f}\n"
-            f"  Kalshi YES: {kalshi_yes_price:.4f} | Poly NO: {polymarket_no_price:.4f}"
+            f"  Kalshi {kalshi_side}: {price1 if direction == 'kalshi_yes_poly_no' else price2:.4f} | "
+            f"Poly {poly_side}: {price2 if direction == 'kalshi_yes_poly_no' else price1:.4f}"
         )
 
         # Add time-based metrics if available
