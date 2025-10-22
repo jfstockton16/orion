@@ -33,6 +33,8 @@ class ArbitrageEngine:
         """
         self.config = config
         self.dry_run = dry_run
+        # Set trading mode based on dry_run flag
+        self.trading_mode = 'paper' if dry_run else 'live'
 
         # Initialize components
         self.kalshi = KalshiClient(
@@ -302,8 +304,8 @@ class ArbitrageEngine:
             # Generate position ID
             position_id = f"arb_{int(datetime.now().timestamp())}_{opp.kalshi_market_id[:8]}"
 
-            # Save opportunity to database
-            self.repository.save_opportunity(opp, position_id)
+            # Save opportunity to database with trading mode
+            self.repository.save_opportunity(opp, position_id, trading_mode=self.trading_mode)
 
             # Send alert
             await self.alert_manager.send_opportunity_alert(opp)
@@ -339,8 +341,8 @@ class ArbitrageEngine:
         # Execute trade
         result = await self.executor.execute_arbitrage(opportunity)
 
-        # Save trade result
-        self.repository.save_trade(result)
+        # Save trade result with trading mode
+        self.repository.save_trade(result, trading_mode=self.trading_mode)
 
         # Send execution alert
         await self.alert_manager.send_execution_alert(result, opportunity)
@@ -374,7 +376,7 @@ class ArbitrageEngine:
 
         try:
             portfolio = self.capital_manager.get_portfolio_state()
-            self.repository.save_balance_snapshot(portfolio)
+            self.repository.save_balance_snapshot(portfolio, trading_mode=self.trading_mode)
 
         except Exception as e:
             logger.error(f"Error saving balance snapshot: {e}")

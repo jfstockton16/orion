@@ -53,6 +53,7 @@ def load_runtime_config():
         'paper_trading': True,
         'auto_execute': False,
         'engine_running': False,
+        'paper_balance': 100000,  # Default paper trading balance
         'last_updated': None
     }
 
@@ -89,21 +90,21 @@ def save_trading_config(config_data):
         yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
 
-def load_data(session: Session, days: int = 7):
-    """Load data from database"""
+def load_data(session: Session, days: int = 7, trading_mode: str = 'paper'):
+    """Load data from database filtered by trading mode"""
     repo = ArbitrageRepository(session)
 
-    # Get recent opportunities
-    opportunities = repo.get_recent_opportunities(limit=1000)
+    # Get recent opportunities for this mode
+    opportunities = repo.get_recent_opportunities(limit=1000, trading_mode=trading_mode)
 
-    # Get open positions
-    open_positions = repo.get_open_positions()
+    # Get open positions for this mode
+    open_positions = repo.get_open_positions(trading_mode=trading_mode)
 
-    # Get performance summary
-    summary = repo.get_performance_summary(days=days)
+    # Get performance summary for this mode
+    summary = repo.get_performance_summary(days=days, trading_mode=trading_mode)
 
-    # Get latest balance
-    latest_balance = repo.get_latest_balance()
+    # Get latest balance for this mode
+    latest_balance = repo.get_latest_balance(trading_mode=trading_mode)
 
     return {
         'opportunities': opportunities,
@@ -190,6 +191,41 @@ def main():
             save_runtime_config(runtime_config)
             st.success("✅ Auto-execute setting updated!")
             st.rerun()
+
+    # Paper Trading Balance Configuration
+    if paper_trading:
+        st.markdown("---")
+        st.subheader("📝 Paper Trading Configuration")
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            paper_balance = st.number_input(
+                "Paper Trading Starting Balance (USD)",
+                min_value=1000,
+                max_value=10000000,
+                value=int(runtime_config.get('paper_balance', 100000)),
+                step=5000,
+                help="Starting balance for paper trading simulation"
+            )
+
+            if paper_balance != runtime_config.get('paper_balance'):
+                runtime_config['paper_balance'] = paper_balance
+
+                # Also update config.yaml for the engine
+                if 'capital' in trading_config:
+                    trading_config['capital']['initial_bankroll'] = paper_balance
+                    save_trading_config(trading_config)
+
+                save_runtime_config(runtime_config)
+                st.success(f"✅ Paper trading balance set to ${paper_balance:,}")
+
+        with col2:
+            st.metric("Current Paper Balance", f"${paper_balance:,}")
+
+        st.info("💡 **Tip**: Paper trading data is completely separate from live trading data. You can test strategies risk-free!")
+    else:
+        st.warning("⚠️ **LIVE TRADING MODE ACTIVE** - Real money will be used. Ensure you have proper risk management in place.")
 
     # Engine control instructions
     st.info("""
@@ -317,9 +353,12 @@ def main():
 
     st.markdown("---")
 
-    # Load data
+    # Determine current trading mode
+    current_mode = 'paper' if runtime_config.get('paper_trading', True) else 'live'
+
+    # Load data filtered by trading mode
     session = get_db_session()
-    data = load_data(session, days=days_lookback)
+    data = load_data(session, days=days_lookback, trading_mode=current_mode)
 
     # Top metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -364,8 +403,9 @@ def main():
 
     st.markdown("---")
 
-    # Current Parameters Summary
-    st.subheader("📋 Current Configuration")
+    # Current Parameters Summary with Mode Indicator
+    mode_badge = "📝 PAPER MODE" if current_mode == 'paper' else "💵 LIVE MODE"
+    st.subheader(f"📋 Current Configuration - {mode_badge}")
     config_col1, config_col2, config_col3 = st.columns(3)
 
     with config_col1:
@@ -389,6 +429,11 @@ def main():
         auto_icon = "✅" if runtime_config.get('auto_execute', False) else "⏸️"
         auto_text = "Enabled" if runtime_config.get('auto_execute', False) else "Disabled"
         st.markdown(f"• Auto-Execute: {auto_icon} {auto_text}")
+
+        if current_mode == 'paper':
+            st.markdown(f"• Paper Balance: ${runtime_config.get('paper_balance', 100000):,}")
+
+    st.caption(f"**Data shown**: All statistics below are for **{mode_text}** only")
 
     st.markdown("---")
 

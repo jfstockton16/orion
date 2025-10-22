@@ -27,13 +27,19 @@ class ArbitrageRepository:
         """
         self.session = session
 
-    def save_opportunity(self, opportunity: ArbitrageOpportunity, position_id: str) -> OpportunityLog:
+    def save_opportunity(
+        self,
+        opportunity: ArbitrageOpportunity,
+        position_id: str,
+        trading_mode: str = 'paper'
+    ) -> OpportunityLog:
         """
         Save arbitrage opportunity to database
 
         Args:
             opportunity: ArbitrageOpportunity object
             position_id: Unique position identifier
+            trading_mode: 'paper' or 'live' trading mode
 
         Returns:
             OpportunityLog object
@@ -41,6 +47,7 @@ class ArbitrageRepository:
         try:
             opp_log = OpportunityLog(
                 position_id=position_id,
+                trading_mode=trading_mode,
                 kalshi_market_id=opportunity.kalshi_market_id,
                 polymarket_market_id=opportunity.polymarket_market_id,
                 question=opportunity.question,
@@ -71,12 +78,13 @@ class ArbitrageRepository:
             self.session.rollback()
             raise
 
-    def save_trade(self, result: ExecutionResult) -> TradeLog:
+    def save_trade(self, result: ExecutionResult, trading_mode: str = 'paper') -> TradeLog:
         """
         Save trade execution result
 
         Args:
             result: ExecutionResult object
+            trading_mode: 'paper' or 'live' trading mode
 
         Returns:
             TradeLog object
@@ -84,6 +92,7 @@ class ArbitrageRepository:
         try:
             trade_log = TradeLog(
                 position_id=result.position_id,
+                trading_mode=trading_mode,
                 kalshi_order_id=result.kalshi_order_id,
                 polymarket_order_id=result.polymarket_order_id,
                 kalshi_filled=result.kalshi_filled,
@@ -158,18 +167,20 @@ class ArbitrageRepository:
             logger.error(f"Error closing position: {e}")
             self.session.rollback()
 
-    def save_balance_snapshot(self, portfolio: PortfolioState) -> BalanceSnapshot:
+    def save_balance_snapshot(self, portfolio: PortfolioState, trading_mode: str = 'paper') -> BalanceSnapshot:
         """
         Save portfolio balance snapshot
 
         Args:
             portfolio: PortfolioState object
+            trading_mode: 'paper' or 'live' trading mode
 
         Returns:
             BalanceSnapshot object
         """
         try:
             snapshot = BalanceSnapshot(
+                trading_mode=trading_mode,
                 kalshi_balance=portfolio.kalshi_balance,
                 polymarket_balance=portfolio.polymarket_balance,
                 total_balance=portfolio.total_balance,
@@ -193,37 +204,52 @@ class ArbitrageRepository:
             self.session.rollback()
             raise
 
-    def get_recent_opportunities(self, limit: int = 100) -> List[OpportunityLog]:
+    def get_recent_opportunities(self, limit: int = 100, trading_mode: Optional[str] = None) -> List[OpportunityLog]:
         """
         Get recent opportunities
 
         Args:
             limit: Maximum number to return
+            trading_mode: Filter by 'paper' or 'live' (None = all)
 
         Returns:
             List of OpportunityLog objects
         """
-        return self.session.query(OpportunityLog).order_by(
+        query = self.session.query(OpportunityLog)
+
+        if trading_mode:
+            query = query.filter(OpportunityLog.trading_mode == trading_mode)
+
+        return query.order_by(
             desc(OpportunityLog.detected_at)
         ).limit(limit).all()
 
-    def get_open_positions(self) -> List[TradeLog]:
+    def get_open_positions(self, trading_mode: Optional[str] = None) -> List[TradeLog]:
         """
         Get all open positions
+
+        Args:
+            trading_mode: Filter by 'paper' or 'live' (None = all)
 
         Returns:
             List of TradeLog objects
         """
-        return self.session.query(TradeLog).filter(
+        query = self.session.query(TradeLog).filter(
             TradeLog.status.in_(['filled', 'partial'])
-        ).all()
+        )
 
-    def get_performance_summary(self, days: int = 30) -> Dict:
+        if trading_mode:
+            query = query.filter(TradeLog.trading_mode == trading_mode)
+
+        return query.all()
+
+    def get_performance_summary(self, days: int = 30, trading_mode: Optional[str] = None) -> Dict:
         """
         Get performance summary for last N days
 
         Args:
             days: Number of days to look back
+            trading_mode: Filter by 'paper' or 'live' (None = all)
 
         Returns:
             Dictionary with performance metrics
@@ -231,13 +257,19 @@ class ArbitrageRepository:
         cutoff = datetime.utcnow() - timedelta(days=days)
 
         # Count opportunities and trades
-        opps = self.session.query(OpportunityLog).filter(
+        opps_query = self.session.query(OpportunityLog).filter(
             OpportunityLog.detected_at >= cutoff
-        ).all()
-
-        trades = self.session.query(TradeLog).filter(
+        )
+        trades_query = self.session.query(TradeLog).filter(
             TradeLog.created_at >= cutoff
-        ).all()
+        )
+
+        if trading_mode:
+            opps_query = opps_query.filter(OpportunityLog.trading_mode == trading_mode)
+            trades_query = trades_query.filter(TradeLog.trading_mode == trading_mode)
+
+        opps = opps_query.all()
+        trades = trades_query.all()
 
         successful_trades = [t for t in trades if t.success]
         closed_trades = [t for t in trades if t.status == 'closed' and t.realized_pnl is not None]
@@ -257,13 +289,21 @@ class ArbitrageRepository:
             'avg_profit': total_pnl / len(closed_trades) if closed_trades else 0
         }
 
-    def get_latest_balance(self) -> Optional[BalanceSnapshot]:
+    def get_latest_balance(self, trading_mode: Optional[str] = None) -> Optional[BalanceSnapshot]:
         """
         Get most recent balance snapshot
+
+        Args:
+            trading_mode: Filter by 'paper' or 'live' (None = all)
 
         Returns:
             BalanceSnapshot object or None
         """
-        return self.session.query(BalanceSnapshot).order_by(
+        query = self.session.query(BalanceSnapshot)
+
+        if trading_mode:
+            query = query.filter(BalanceSnapshot.trading_mode == trading_mode)
+
+        return query.order_by(
             desc(BalanceSnapshot.snapshot_at)
         ).first()

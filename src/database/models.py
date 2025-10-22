@@ -18,6 +18,9 @@ class OpportunityLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_id = Column(String(100), unique=True, nullable=False, index=True)
 
+    # Trading mode - CRITICAL for separating paper vs live
+    trading_mode = Column(String(20), default='paper', nullable=False, index=True)  # 'paper' or 'live'
+
     # Market information
     kalshi_market_id = Column(String(100), nullable=False)
     polymarket_market_id = Column(String(100), nullable=False)
@@ -66,6 +69,9 @@ class TradeLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_id = Column(String(100), nullable=False, index=True)
 
+    # Trading mode - CRITICAL for separating paper vs live
+    trading_mode = Column(String(20), default='paper', nullable=False, index=True)  # 'paper' or 'live'
+
     # Order IDs
     kalshi_order_id = Column(String(100))
     polymarket_order_id = Column(String(100))
@@ -103,6 +109,9 @@ class BalanceSnapshot(Base):
     __tablename__ = 'balance_snapshots'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Trading mode - CRITICAL for separating paper vs live
+    trading_mode = Column(String(20), default='paper', nullable=False, index=True)  # 'paper' or 'live'
 
     # Balances
     kalshi_balance = Column(Float, nullable=False)
