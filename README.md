@@ -83,7 +83,9 @@
 
 ## 🚀 Quick Start
 
-> **📖 For detailed setup instructions, see [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)**
+> **📖 NEW FOR MAC USERS:** For complete beginner-friendly setup instructions with **no-Terminal daily usage**, see [SETUP_FOR_DUMMIES.md](SETUP_FOR_DUMMIES.md). After setup, simply double-click `Start Orion.command` to launch everything!
+
+> **📖 For detailed production setup instructions, see [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)**
 
 ### 1. Clone and Install
 

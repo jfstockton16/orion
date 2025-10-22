@@ -150,32 +150,19 @@ Save the file (Command+S) and close TextEdit.
 
 ## Step 7: Set How Much to Trade
 
-Open the configuration:
+**Important:** You'll configure all settings through the Dashboard's Control Interface later. For now, just verify the default configuration file exists:
 
 ```bash
-open -a TextEdit config/config.yaml
+ls -l config/config.yaml
 ```
 
-Find the line that says `initial_bankroll: 100000` and change it to your actual starting amount. For example, if you have $5,000:
+You should see the file listed. The default settings are:
+- `auto_execute: false` - Won't trade automatically (alert only)
+- `max_trade_size_pct: 0.02` - Max 2% of your money per trade
+- `max_daily_loss_pct: 0.03` - Stops if you lose 3% in one day
+- `initial_bankroll: 100000` - Default starting amount
 
-```yaml
-initial_bankroll: 5000
-```
-
-Find these safety settings and make sure they say:
-
-```yaml
-auto_execute: false
-max_trade_size_pct: 0.02
-max_daily_loss_pct: 0.03
-```
-
-This means:
-- Won't trade automatically yet (alert only)
-- Max 2% of your money per trade
-- Stops if you lose 3% in one day
-
-Save (Command+S) and close.
+**You'll adjust these values in the Dashboard later** (Step 10), including setting your actual bankroll amount.
 
 ---
 
@@ -214,7 +201,7 @@ To stop it: Press Control+C
 
 ---
 
-## Step 10: Monitor in Your Web Browser (Optional)
+## Step 10: Configure Settings in the Dashboard
 
 Open a new Terminal tab (Command+T) and run:
 
@@ -226,10 +213,30 @@ streamlit run dashboard.py
 
 Open Safari and go to: http://localhost:8501
 
-You'll see a dashboard showing:
-- Your balances
-- Detected opportunities
-- Performance charts
+You'll see a dashboard with several tabs:
+- **Overview**: Balances, detected opportunities, performance charts
+- **Control Panel**: Where you configure all settings (see below!)
+
+### Configure Your Settings (Use the Control Panel Tab)
+
+Click on the **Control Panel** tab in the dashboard. Here you can:
+
+1. **Set Your Bankroll** - Enter your actual starting amount (e.g., $5,000)
+2. **Adjust Trading Parameters:**
+   - Minimum Edge (spread threshold): 1.0% is safe to start
+   - Max Trade Size: 2% of bankroll per trade (recommended)
+   - Liquidity requirements
+3. **Set Risk Limits:**
+   - Max Open Positions: Start with 5
+   - Max Daily Loss: 3% (circuit breaker)
+   - Polling interval: 30 seconds is good
+4. **Trading Mode:**
+   - Keep "Auto-Execute" turned **OFF** for now (alert-only mode)
+   - Keep "Paper Trading" turned **OFF** (we already tested in dry-run)
+
+**Click "Save Configuration"** at the bottom when done. The settings are saved immediately.
+
+Leave the dashboard running in this Terminal tab.
 
 ---
 
@@ -237,31 +244,16 @@ You'll see a dashboard showing:
 
 **Only do this after 24+ hours of dry-run testing!**
 
-Open the configuration:
+When you're ready for real trading:
 
-```bash
-open -a TextEdit config/config.yaml
-```
+1. Open the Dashboard: http://localhost:8501
+2. Go to the **Control Panel** tab
+3. Toggle "Auto-Execute" to **ON**
+4. Click **"Save Configuration"**
 
-Change:
-```yaml
-auto_execute: false
-```
+The next time you restart Orion (or if it's already running, within the next polling cycle), it will execute real trades.
 
-To:
-```yaml
-auto_execute: true
-```
-
-Save (Command+S) and close.
-
-Now when you run it:
-
-```bash
-python main.py
-```
-
-You'll see a 5-second warning. **This will now trade real money.**
+**You'll see a 5-second warning in Terminal. This will now trade real money.**
 
 ---
 
@@ -325,7 +317,73 @@ If something doesn't work:
 
 ---
 
-## Summary of Commands
+## Step 12: Set Up Easy Launch (One-Time Setup)
+
+**THIS IS THE BEST PART!** After this step, you'll never need to use Terminal again.
+
+In Terminal, copy and paste these commands ONE LAST TIME:
+
+```bash
+cd ~/Desktop/orion
+chmod +x "Start Orion.command"
+chmod +x "Stop Orion.command"
+chmod +x scripts/start_orion.sh
+chmod +x scripts/stop_orion.sh
+```
+
+Now you have two special files in your `orion` folder:
+- **Start Orion.command** - Starts everything
+- **Stop Orion.command** - Stops everything
+
+**First time only:** When you double-click these files, macOS will say "cannot be opened because it is from an unidentified developer."
+
+Here's how to fix that:
+1. Right-click (or Control+click) on **Start Orion.command**
+2. Select "Open"
+3. Click "Open" in the popup
+4. Do the same for **Stop Orion.command**
+
+After doing this once, double-clicking will work forever.
+
+**Optional but recommended:** Create desktop shortcuts:
+
+Right-click and drag these files to your Desktop while holding the Option+Command keys. This creates aliases (shortcuts) on your Desktop.
+
+Or simply copy them:
+```bash
+cp "Start Orion.command" ~/Desktop/
+cp "Stop Orion.command" ~/Desktop/
+cp "Orion Dashboard.html" ~/Desktop/
+```
+
+---
+
+## Summary of Daily Usage (No Terminal Required!)
+
+**To start Orion and the dashboard:**
+1. Double-click **Start Orion.command** (on Desktop or in the orion folder)
+2. Wait about 10 seconds
+3. Your browser will automatically open to the dashboard
+
+**To view the dashboard (if Orion is already running):**
+- Double-click **Orion Dashboard.html**
+- Or go to: http://localhost:8501 in Safari
+
+**To stop Orion:**
+- Double-click **Stop Orion.command**
+
+**To check logs (Terminal required, optional):**
+```bash
+tail -f ~/Desktop/orion/logs/arbitrage.log
+```
+
+That's it! No more Terminal commands needed for daily use.
+
+---
+
+## OLD METHOD: Summary of Commands (For Reference)
+
+You don't need these anymore, but they still work if you prefer Terminal:
 
 **To start the bot:**
 ```bash
