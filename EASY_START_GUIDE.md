@@ -76,7 +76,7 @@ Every day you should:
 
 ### Alert-Only Mode (Recommended at First)
 
-If `auto_execute: false` in your config (the safe default):
+If Auto-Execute is turned OFF in the dashboard (the safe default):
 - Orion **detects** arbitrage opportunities
 - Orion **alerts** you (in logs, dashboard, and Telegram if configured)
 - Orion **does NOT** execute trades automatically
@@ -84,7 +84,7 @@ If `auto_execute: false` in your config (the safe default):
 
 ### Live Trading Mode (Advanced Users Only)
 
-If `auto_execute: true` in your config:
+If Auto-Execute is turned ON in the dashboard:
 - Orion **automatically executes** real trades
 - This uses **real money**
 - Monitor closely!
@@ -153,30 +153,34 @@ Press `Control+C` to stop viewing logs.
 
 ---
 
-## Settings You Might Want to Adjust
+## Adjusting Settings (Use the Dashboard!)
 
-Open: `~/Desktop/orion/config/config.yaml` in TextEdit
+**Don't manually edit config files!** Use the Dashboard's Control Panel instead.
 
-**Important settings:**
+1. Open the Dashboard: http://localhost:8501
+2. Click on the **Control Panel** tab (at the top)
+3. Adjust any settings you want:
 
-```yaml
-trading:
-  auto_execute: false           # Set to true for live trading
-  threshold_spread: 0.01        # Minimum profit required (1%)
-  max_trade_size_pct: 0.02      # Max 2% of bankroll per trade
+**Important settings you can change:**
 
-risk:
-  max_open_positions: 5         # How many trades at once
-  max_daily_loss_pct: 0.03      # Stop if you lose 3% in one day
-```
+- **Auto-Execute**: Turn ON for live trading, OFF for alert-only mode
+- **Paper Trading**: Turn ON for simulation mode (testing)
+- **Minimum Edge**: Minimum profit required (1.0% = 1%)
+- **Max Trade Size**: Max % of bankroll per trade (2% recommended)
+- **Max Open Positions**: How many trades at once (start with 5)
+- **Max Daily Loss**: Circuit breaker % (3% recommended)
+- **Bankroll**: Your total capital amount
+- **Polling Interval**: How often to check for opportunities (30 seconds)
 
-**Save the file** after making changes. You'll need to restart Orion for changes to take effect.
+4. **Click "Save Configuration"** at the bottom
+
+Changes take effect on the next polling cycle (or immediately if you restart Orion).
 
 ---
 
 ## Safety Reminders
 
-1. **Start in alert-only mode** (`auto_execute: false`)
+1. **Start in alert-only mode** (Auto-Execute OFF in dashboard)
 2. **Monitor daily** - Don't set it and forget it
 3. **Start with small position sizes** (2-5% max per trade)
 4. **Verify balances** match between dashboard and exchange websites
@@ -217,9 +221,11 @@ Once you're comfortable with alert-only mode:
 2. Verify they make sense (prices, spreads, etc.)
 3. Check historical performance in the dashboard
 4. When ready for live trading:
-   - Open `config/config.yaml`
-   - Change `auto_execute: false` to `auto_execute: true`
-   - **Start very conservative** (small position sizes)
+   - Open the Dashboard: http://localhost:8501
+   - Go to the **Control Panel** tab
+   - Toggle **"Auto-Execute"** to **ON**
+   - **Keep position sizes conservative** (2-3% max per trade)
+   - Click **"Save Configuration"**
    - Monitor closely for the first week
 
 ---
