@@ -275,6 +275,31 @@ class ArbitrageDetector:
             )
             return None
 
+        # Calculate time-based metrics for capital efficiency
+        days_to_resolution = None
+        annualized_roi = None
+
+        end_date = kalshi_market.get('end_date') or polymarket_market.get('end_date')
+        if end_date:
+            try:
+                from datetime import datetime
+                # Parse end date
+                for fmt in ['%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ']:
+                    try:
+                        end_dt = datetime.strptime(end_date.split('.')[0].replace('Z', ''), fmt)
+                        days_to_resolution = (end_dt - datetime.now()).days
+                        break
+                    except ValueError:
+                        continue
+
+                # Calculate annualized ROI
+                if days_to_resolution and days_to_resolution > 0:
+                    annualized_roi = net_edge * (365.0 / days_to_resolution)
+                else:
+                    annualized_roi = net_edge
+            except Exception:
+                pass  # Keep as None if can't parse
+
         # Create opportunity with risk assessment
         opportunity = ArbitrageOpportunity(
             kalshi_market_id=kalshi_market.get('market_id'),
@@ -299,10 +324,13 @@ class ArbitrageDetector:
             liquidity_polymarket=poly_liquidity,
             risk_level=risk_assessment.overall_risk.value,
             risk_score=risk_assessment.risk_score,
-            risk_warnings=risk_assessment.warnings
+            risk_warnings=risk_assessment.warnings,
+            days_to_resolution=days_to_resolution,
+            annualized_roi=annualized_roi
         )
 
-        logger.info(
+        # Build log message
+        log_msg = (
             f"ARBITRAGE OPPORTUNITY DETECTED!\n"
             f"  Question: {opportunity.question[:60]}...\n"
             f"  Spread: {spread:.4f} | Edge: {net_edge:.4f} ({net_edge*100:.2f}%)\n"
@@ -310,6 +338,14 @@ class ArbitrageDetector:
             f"  Expected Profit: ${expected_profit:.2f}\n"
             f"  Kalshi YES: {kalshi_yes_price:.4f} | Poly NO: {polymarket_no_price:.4f}"
         )
+
+        # Add time-based metrics if available
+        if days_to_resolution is not None:
+            log_msg += f"\n  Days to Resolution: {days_to_resolution}"
+        if annualized_roi is not None:
+            log_msg += f"\n  Annualized ROI: {annualized_roi*100:.1f}%"
+
+        logger.info(log_msg)
 
         return opportunity
 

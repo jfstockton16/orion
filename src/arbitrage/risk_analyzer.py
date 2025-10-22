@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime, timedelta
 from src.utils.logger import setup_logger
 
 logger = setup_logger("risk_analyzer")
@@ -42,6 +43,10 @@ class RiskAnalyzer:
             config: Configuration dictionary
         """
         self.config = config
+
+        # Time-based constraints
+        self.max_days_to_resolution = config.get('capital', {}).get('max_days_to_resolution', 30)
+        self.high_return_threshold = config.get('capital', {}).get('high_return_threshold', 0.05)  # 5%
 
     def analyze_opportunity(
         self,
@@ -108,6 +113,16 @@ class RiskAnalyzer:
         risk_factors.extend(regulatory_risk['factors'])
         warnings.extend(regulatory_risk['warnings'])
         risk_score += regulatory_risk['score']
+
+        # 6. Time-to-Resolution Risk (Capital Efficiency)
+        time_risk = self._analyze_time_to_resolution(
+            kalshi_market,
+            polymarket_market,
+            edge
+        )
+        risk_factors.extend(time_risk['factors'])
+        warnings.extend(time_risk['warnings'])
+        risk_score += time_risk['score']
 
         # Determine overall risk level
         if risk_score >= 0.7:
@@ -359,6 +374,151 @@ class RiskAnalyzer:
                 'description': 'Political prediction markets have regulatory scrutiny'
             })
             score += 0.05
+
+        return {
+            'factors': factors,
+            'warnings': warnings,
+            'score': score
+        }
+
+    def _analyze_time_to_resolution(
+        self,
+        kalshi_market: Dict,
+        polymarket_market: Dict,
+        edge: float
+    ) -> Dict:
+        """
+        Analyze time to resolution for capital efficiency
+
+        Rejects trades that lock capital > 30 days unless return is very high.
+        Goal: Maximize compounding velocity
+
+        Args:
+            kalshi_market: Kalshi market data
+            polymarket_market: Polymarket market data
+            edge: Net edge after fees
+
+        Returns:
+            Risk assessment dict
+        """
+        factors = []
+        warnings = []
+        score = 0.0
+
+        # Parse end dates
+        end_date = kalshi_market.get('end_date') or polymarket_market.get('end_date')
+
+        if not end_date:
+            # No end date - assume long-term
+            factors.append({
+                'type': 'time_to_resolution',
+                'severity': 'high',
+                'description': 'No end date specified - likely long-term lock-up'
+            })
+            warnings.append(
+                '⚠️ No end date - capital may be locked long-term'
+            )
+            score += 0.4
+            return {
+                'factors': factors,
+                'warnings': warnings,
+                'score': score
+            }
+
+        # Calculate days to resolution
+        try:
+            # Try to parse the date
+            # Handle various date formats
+            for fmt in ['%Y-%m-%d', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ']:
+                try:
+                    end_dt = datetime.strptime(end_date.split('.')[0].replace('Z', ''), fmt)
+                    break
+                except ValueError:
+                    continue
+            else:
+                # Couldn't parse
+                raise ValueError(f"Could not parse date: {end_date}")
+
+            days_to_resolution = (end_dt - datetime.now()).days
+
+            # Calculate annualized return for comparison
+            if days_to_resolution > 0:
+                annualized_return = edge * (365 / days_to_resolution)
+            else:
+                annualized_return = edge  # Resolves today or past
+
+            # Apply time-based rules
+            if days_to_resolution > self.max_days_to_resolution:
+                # Capital locked > 30 days
+
+                if edge >= self.high_return_threshold:
+                    # Exception: Very high return justifies longer lock-up
+                    factors.append({
+                        'type': 'time_to_resolution',
+                        'severity': 'low',
+                        'description': (
+                            f'{days_to_resolution} days to resolution but '
+                            f'{edge*100:.1f}% return justifies lock-up'
+                        )
+                    })
+                    warnings.append(
+                        f'📅 Capital locked {days_to_resolution} days, but '
+                        f'{edge*100:.1f}% return is excellent (annualized: {annualized_return*100:.1f}%)'
+                    )
+                    score += 0.0  # No penalty - high return
+
+                else:
+                    # Reject: Long lock-up with modest return
+                    factors.append({
+                        'type': 'time_to_resolution',
+                        'severity': 'critical',
+                        'description': (
+                            f'{days_to_resolution} days to resolution exceeds '
+                            f'{self.max_days_to_resolution} day limit with only '
+                            f'{edge*100:.1f}% return'
+                        )
+                    })
+                    warnings.append(
+                        f'❌ REJECTED: Capital locked {days_to_resolution} days '
+                        f'(max: {self.max_days_to_resolution}) for only {edge*100:.2f}% return. '
+                        f'Annualized ROI: {annualized_return*100:.1f}%'
+                    )
+                    score += 0.8  # High penalty - poor capital efficiency
+
+            elif days_to_resolution > 14:
+                # 2-4 weeks - acceptable but note capital velocity impact
+                factors.append({
+                    'type': 'time_to_resolution',
+                    'severity': 'low',
+                    'description': f'{days_to_resolution} days to resolution'
+                })
+                warnings.append(
+                    f'📅 Capital locked for {days_to_resolution} days. '
+                    f'Annualized ROI: {annualized_return*100:.1f}%'
+                )
+                score += 0.1
+
+            else:
+                # < 2 weeks - excellent for compounding
+                factors.append({
+                    'type': 'time_to_resolution',
+                    'severity': 'low',
+                    'description': f'{days_to_resolution} days - fast resolution ✅'
+                })
+                warnings.append(
+                    f'✅ Fast resolution: {days_to_resolution} days. '
+                    f'Annualized ROI: {annualized_return*100:.1f}% - excellent for compounding!'
+                )
+                score += 0.0  # No penalty - optimal
+
+        except Exception as e:
+            logger.warning(f"Could not parse end date '{end_date}': {e}")
+            factors.append({
+                'type': 'time_to_resolution',
+                'severity': 'medium',
+                'description': f'Could not parse end date: {end_date}'
+            })
+            score += 0.2
 
         return {
             'factors': factors,

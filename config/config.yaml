@@ -18,6 +18,11 @@ capital:
   rebalance_interval_hr: 4        # Rebalance every 4 hours
   rebalance_threshold: 0.15       # Rebalance if drift > 15%
 
+  # Capital Efficiency / Compounding Velocity
+  max_days_to_resolution: 30      # Reject trades > 30 days out
+  high_return_threshold: 0.05     # UNLESS return >= 5% (exception)
+  # Goal: Maximize compounding by favoring fast-resolving events
+
 # Risk Management
 risk:
   max_open_positions: 20          # Maximum concurrent positions
