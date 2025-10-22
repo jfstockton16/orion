@@ -4,12 +4,18 @@
 
 The enhanced Orion Dashboard provides a comprehensive control interface for managing your arbitrage trading engine. You can monitor performance, adjust parameters, and control paper trading vs live trading modes.
 
+**🔑 KEY FEATURE**: Paper trading and live trading data are completely separated! You can test strategies risk-free without impacting your live trading statistics.
+
 ## Features
 
 ### 🎮 Engine Control Panel
 - **Engine Status**: Real-time indicator showing if the engine is running
 - **Paper Trading Toggle**: Switch between paper trading (simulation) and live trading
+  - **Data Separation**: Toggling between modes shows different data sets
+  - **Paper mode**: Safe testing with simulated balance
+  - **Live mode**: Real trading with actual exchange balances
 - **Auto-Execute Toggle**: Enable/disable automatic trade execution
+- **Paper Balance Input**: Set custom starting balance for paper trading (min $1,000, max $10M)
 - **Control Instructions**: Clear guidance on how to start/stop the engine
 
 ### ⚙️ Trading Parameters
@@ -96,9 +102,42 @@ Runtime state file that tracks:
 - Current paper trading mode
 - Auto-execute status
 - Engine running status
+- Paper trading balance
 - Last update timestamp
 
 This file is automatically created when you first toggle settings in the dashboard.
+
+## Paper vs Live Trading - Data Separation
+
+### How It Works
+
+All database records are tagged with a `trading_mode` field (`'paper'` or `'live'`):
+- **Paper mode**: Uses simulated balance you set in the dashboard
+- **Live mode**: Uses actual exchange balances
+
+When you toggle between modes, the dashboard automatically filters all data:
+- Opportunities detected
+- Trades executed
+- Balance snapshots
+- Performance statistics
+- P&L calculations
+
+### Benefits
+
+✅ **Test Risk-Free**: Try different strategies without real money
+✅ **Separate Analytics**: Paper and live stats don't mix
+✅ **Easy Switching**: Toggle in dashboard to view different data
+✅ **Clean Transition**: When ready for live trading, your paper data stays intact for reference
+
+### Database Migration
+
+If you're upgrading from a previous version, run the migration script:
+
+```bash
+python migrate_database.py
+```
+
+This adds the `trading_mode` column to existing tables and marks all existing data as `'paper'` mode.
 
 ## Safety Features
 
@@ -136,13 +175,36 @@ This file is automatically created when you first toggle settings in the dashboa
 
 ## Example Workflow
 
+### Testing with Paper Trading
+
 1. **Start Dashboard**: `streamlit run dashboard.py`
-2. **Verify Settings**: Check the "Current Configuration" section
-3. **Adjust If Needed**: Modify parameters in the expander and save
-4. **Start Engine**: Run `python main.py` in another terminal (paper trading)
-5. **Monitor**: Watch opportunities and trades in the dashboard
-6. **Analyze**: Review performance metrics after some time
-7. **Go Live**: When confident, enable auto-execute and run with `--auto-execute` flag
+2. **Set Paper Balance**: Enter your desired test balance (e.g., $50,000)
+3. **Verify Settings**: Check the "Current Configuration" section
+4. **Ensure Paper Mode**: Verify "Paper Trading Mode" toggle is ON
+5. **Adjust Parameters**: Fine-tune trading parameters and save
+6. **Start Engine**: Run `python main.py --dry-run` in another terminal
+7. **Monitor**: Watch the dashboard - you'll see "📝 PAPER MODE" badge
+8. **Analyze**: Review paper trading performance over several days/weeks
+9. **Iterate**: Adjust parameters based on paper results
+
+### Going Live
+
+1. **Review Paper Results**: Ensure satisfactory performance in paper mode
+2. **Toggle to Live**: Switch "Paper Trading Mode" OFF in dashboard
+3. **Warning Appears**: Dashboard shows "⚠️ LIVE TRADING MODE ACTIVE"
+4. **Set Conservative Limits**: Start with small position sizes
+5. **Enable Auto-Execute**: Toggle ON when ready
+6. **Start Live Engine**: Run `python main.py` (without --dry-run)
+7. **Monitor Closely**: Dashboard now shows "💵 LIVE MODE" badge
+8. **Scale Gradually**: Increase limits as confidence grows
+
+### Switching Between Modes
+
+You can toggle between Paper and Live modes in the dashboard to view different data sets:
+- Toggle ON = See paper trading data only
+- Toggle OFF = See live trading data only
+
+**Note**: The toggle only changes what data you're viewing. To actually change how the engine runs, you need to restart it with or without the `--dry-run` flag.
 
 ## Safety Reminder
 
