@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 from src.utils.logger import setup_logger
+from src.arbitrage.risk_analyzer import RiskAnalyzer, RiskAssessment, RiskLevel
 
 logger = setup_logger("detector")
 
@@ -44,6 +45,11 @@ class ArbitrageOpportunity:
     liquidity_kalshi: float
     liquidity_polymarket: float
 
+    # Risk assessment
+    risk_level: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_warnings: Optional[List[str]] = None
+
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
         return {
@@ -82,6 +88,9 @@ class ArbitrageDetector:
         self.kalshi_fee_pct = config.get('fees', {}).get('kalshi_fee_pct', 0.007)
         self.polymarket_fee_pct = config.get('fees', {}).get('polymarket_fee_pct', 0.02)
         self.gas_cost = config.get('fees', {}).get('blockchain_cost_usd', 5)
+
+        # Initialize risk analyzer
+        self.risk_analyzer = RiskAnalyzer(config)
 
     def calculate_spread(self, kalshi_yes: float, poly_no: float) -> float:
         """
@@ -197,11 +206,37 @@ class ArbitrageDetector:
         if raw_edge < self.threshold_spread:
             return None
 
+        # Perform risk assessment BEFORE sizing
+        risk_assessment = self.risk_analyzer.analyze_opportunity(
+            kalshi_market,
+            polymarket_market,
+            similarity_score,
+            raw_edge,
+            bankroll * self.max_trade_size_pct  # Max possible size
+        )
+
+        # Check if risk level is acceptable
+        if not risk_assessment.should_execute():
+            logger.warning(
+                f"Opportunity rejected due to {risk_assessment.overall_risk.value} risk level. "
+                f"Warnings: {'; '.join(risk_assessment.warnings)}"
+            )
+            return None
+
         # Calculate position size
         position_size = self.calculate_position_size(raw_edge, bankroll)
 
+        # Adjust position size based on risk
+        position_size *= risk_assessment.recommended_size_multiplier
+
         if position_size == 0:
             return None
+
+        # Log risk warnings
+        if risk_assessment.warnings:
+            logger.warning(f"Risk warnings for this opportunity:")
+            for warning in risk_assessment.warnings:
+                logger.warning(f"  {warning}")
 
         # Calculate fees
         kalshi_fee, poly_fee, total_fees = self.calculate_fees(position_size)
@@ -240,7 +275,7 @@ class ArbitrageDetector:
             )
             return None
 
-        # Create opportunity
+        # Create opportunity with risk assessment
         opportunity = ArbitrageOpportunity(
             kalshi_market_id=kalshi_market.get('market_id'),
             polymarket_market_id=polymarket_market.get('market_id'),
@@ -261,7 +296,10 @@ class ArbitrageDetector:
             detected_at=datetime.now(),
             similarity_score=similarity_score,
             liquidity_kalshi=kalshi_liquidity,
-            liquidity_polymarket=poly_liquidity
+            liquidity_polymarket=poly_liquidity,
+            risk_level=risk_assessment.overall_risk.value,
+            risk_score=risk_assessment.risk_score,
+            risk_warnings=risk_assessment.warnings
         )
 
         logger.info(
